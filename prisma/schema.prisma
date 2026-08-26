@@ -1,8 +1,6 @@
 // This is your Prisma schema file,
 // learn more about it in the docs: https://pris.ly/d/prisma-schema
 
-// Get a free hosted Postgres database in seconds: `npx create-db`
-
 generator client {
   provider     = "prisma-client"
   output       = "../src/generated/prisma"
@@ -13,40 +11,68 @@ datasource db {
   provider = "postgresql"
 }
 
-enum Role {
-  GUEST
-  USER
-  ADMIN
+enum TaskStatus {
+  open
+  archived
 }
 
-enum STATE {
-  OPEN
-  CLOSE
+enum IdempotencyStatus {
+  IN_PROGRESS
+  COMPLETED
 }
 
 model User {
-  id           String    @id @default(cuid())
-  email        String    @unique
-  passwordHash String
-  fullName     String
-  avatarUrl    String?
-  isActive     Boolean   @default(true)
-  lastLoginAt  DateTime?
-  createdAt    DateTime  @default(now())
-  updatedAt    DateTime  @updatedAt
-  roles        Role[]    @default([GUEST])
-  tasks        Tasks[]
-
-  @@index([isActive])
+  id          Int              @id @default(autoincrement())
+  name        String
+  lastName    String
+  email       String           @unique
+  createdAt   DateTime         @default(now())
+  assignments TaskAssignment[]
 }
 
-model Tasks {
-  id          String   @id @default(cuid())
-  title       String   @unique
-  description String
-  state       STATE    @default(OPEN)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-  user        User?    @relation(fields: [userId], references: [id])
-  userId      String?
+model Task {
+  id                   Int                    @id @default(autoincrement())
+  title                String
+  description          String?
+  status               TaskStatus             @default(open)
+  createdAt            DateTime               @default(now())
+  archivedAt           DateTime?
+  assignments          TaskAssignment[]
+  notificationAttempts NotificationAttempt[]
+}
+
+model TaskAssignment {
+  id          Int       @id @default(autoincrement())
+  taskId      Int
+  userId      Int
+  assignedAt  DateTime  @default(now())
+  completedAt DateTime?
+  task        Task      @relation(fields: [taskId], references: [id])
+  user        User      @relation(fields: [userId], references: [id])
+
+  @@unique([taskId, userId])
+}
+
+model NotificationAttempt {
+  id            Int      @id @default(autoincrement())
+  taskId        Int
+  attemptNumber Int
+  httpStatus    Int?
+  success       Boolean
+  errorMessage  String?
+  attemptedAt   DateTime @default(now())
+  task          Task     @relation(fields: [taskId], references: [id])
+}
+
+model IdempotencyKey {
+  id             Int               @id @default(autoincrement())
+  key            String            @unique
+  method         String
+  path           String
+  bodyHash       String
+  status         IdempotencyStatus @default(IN_PROGRESS)
+  responseStatus Int?
+  responseBody   Json?             @db.Json
+  createdAt      DateTime          @default(now())
+  completedAt    DateTime?
 }

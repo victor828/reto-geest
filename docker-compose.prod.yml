@@ -10,7 +10,7 @@ services:
       STAGE: prod
       DATABASE_URL: postgresql://postgres:postgres@db:5432/reto_geest
     ports:
-      - '${PORT:-3000}:3000'
+      - '${PORT:-3004}:${PORT:-3004}'
     depends_on:
       db:
         condition: service_healthy

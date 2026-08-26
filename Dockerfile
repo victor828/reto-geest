@@ -65,4 +65,4 @@ COPY --from=build --chown=nestjs:nodejs /app/package.json ./
 
 USER nestjs
 EXPOSE 3000
-CMD ["node", "dist/main"]
+CMD ["sh", "-c", "node_modules/.bin/prisma migrate deploy && node dist/main"]

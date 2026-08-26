@@ -1,18 +1,14 @@
-import { SeedModule } from './modules/seed/config/seed.module';
 import { Module } from '@nestjs/common';
-import { ConfigModule } from '@nestjs/config';
+import { ConfigModule, ConfigService } from '@nestjs/config';
+import { APP_GUARD } from '@nestjs/core';
+import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { UsersModule } from './modules/users/config/users.module';
-import { AuthModule } from './modules/auth/config/auth.module';
+import { TasksModule } from './modules/tasks/config/tasks.module';
 import { PrismaModule } from './db/prisma.module';
 import { CommondModule } from './modules/commond/commond.module';
 
 @Module({
   imports: [
-    CommondModule,
-    SeedModule,
-    AuthModule,
-    UsersModule,
-    PrismaModule,
     ConfigModule.forRoot({
       isGlobal: true,
       envFilePath: [
@@ -21,8 +17,23 @@ import { CommondModule } from './modules/commond/commond.module';
         '.env',
       ],
     }),
+    ThrottlerModule.forRootAsync({
+      inject: [ConfigService],
+      useFactory: (config: ConfigService) => ({
+        throttlers: [
+          {
+            ttl: Number(config.get<string>('THROTTLE_TTL_MS') ?? '10000'),
+            limit: Number(config.get<string>('THROTTLE_LIMIT') ?? '30'),
+          },
+        ],
+      }),
+    }),
+    CommondModule,
+    UsersModule,
+    TasksModule,
+    PrismaModule,
   ],
   controllers: [],
-  providers: [],
+  providers: [{ provide: APP_GUARD, useClass: ThrottlerGuard }],
 })
 export class AppModule {}

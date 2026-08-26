@@ -1,147 +1,67 @@
-## Description
+# RETO GEEST — API de gestión de tareas
 
-[Nest](https://github.com/nestjs/nest) framework TypeScript starter repository.
+API REST (NestJS + TypeScript + PostgreSQL/Prisma) para crear tareas, asignarlas a uno o varios usuarios, marcar cada participación como completada y archivar automáticamente la tarea (con notificación al sistema del cliente) cuando todos terminan.
 
-## Copyright and usage
+- **UML de la base de datos:** [`docs/database-uml.md`](docs/database-uml.md)
+- **Esquema versionado:** [`prisma/schema.prisma`](prisma/schema.prisma) + [`prisma/migrations/`](prisma/migrations/)
+- **URL pública:** `<pendiente — ver sección Despliegue>`
 
-Copyright (c) 2026 Victor Eduardo Orozco Martinez. All rights reserved.
+## Cómo ejecutar el proyecto localmente
 
-This project is private and proprietary. No permission is granted to copy,
-modify, distribute, sublicense, publish, or use this code or any part of it
-without prior written authorization from the copyright holder. See the
-[`LICENSE`](LICENSE) file for the complete terms.
-
-## Prisma
+Requisitos: Node 22+, pnpm, Docker (para Postgres).
 
 ```bash
-$ pnpm dlx prisma@latest init
+pnpm install
+cp .env.example .env                       # valores por defecto ya apuntan al Postgres de docker-compose
+docker compose -f docker-compose.dev.yml up -d db
+pnpm prisma migrate deploy                  # aplica las migraciones versionadas
+pnpm run start:dev                          # http://localhost:3500 — Swagger en /api
 ```
 
-## Project setup
+También se puede levantar todo (API + Postgres) con `docker compose -f docker-compose.dev.yml up`, que ya corre las migraciones automáticamente al iniciar.
+
+### Tests
 
 ```bash
-$ pnpm install
+pnpm test          # unitarios (servicios de dominio, mocks de los repositorios)
+pnpm run test:e2e  # e2e contra Postgres real (requiere el paso "docker compose ... up -d db" de arriba)
 ```
 
-Copiar y crear el .env
+Los e2e cubren los 9 endpoints, los casos de error, y específicamente los tres requisitos de la sección **Confiabilidad**: idempotencia (secuencial y en paralelo), archivado exactamente una vez bajo dos completados concurrentes, y reintentos de notificación con backoff. Usan [`nock`](https://github.com/nock/nock) para interceptar `NOTIFY_URL` sin depender de un servicio externo real.
 
-```bash
-cp .env.example .env
-```
+## Decisiones técnicas
 
-o .env.development.local y .env.production.local usa el comando siguiente. todo depende como lo
-quieras manejar pero es mas facil el .env
+- **Arquitectura reutilizada:** el repo ya traía NestJS + Prisma + arquitectura hexagonal por módulo (`application/domain/infrastructure/config`, patrón port/impl para repositorios) con Docker dev/prod. Se mantuvo esa base; el dominio de `users`/`tasks` se escribió desde cero porque el modelo previo (auth con JWT, `passwordHash`, roles) no correspondía a lo pedido por el reto.
+- **IDs numéricos autoincrementales**, no UUID, para calzar con los ejemplos del PDF (`userIds: [1,2,3]`, `taskId: 123`).
+- **Idempotencia (`Idempotency-Key`):** un interceptor global (aplicado solo a los 4 POST vía decorator `@Idempotent()`) toma un *advisory lock* de Postgres (`pg_advisory_xact_lock`) sobre el hash de la key, ejecuta el handler dentro de esa misma transacción y persiste la respuesta. Un segundo request con la misma key **espera físicamente** el lock (no hace polling) y luego devuelve la respuesta ya guardada — así ambas respuestas son literalmente idénticas incluso en paralelo. Reusar la key con un body distinto responde `422 IDEMPOTENCY_KEY_REUSED`.
+- **Archivado sin duplicados:** independiente del header anterior. `POST /tasks/:id/complete` toma un `SELECT ... FOR UPDATE` sobre la fila de la tarea antes de contar cuántos usuarios siguen pendientes; eso serializa dos completados concurrentes de usuarios distintos y garantiza que solo una transacción vea "ya no queda nadie pendiente" y archive (`UPDATE ... WHERE status='open'` con chequeo de `rowCount`).
+- **Notificación con reintentos:** se dispara solo si el archivado ocurrió, y **después** de que esa transacción hizo commit (nunca dentro — una notificación lenta no debe retener el lock de la tarea ni arriesgar el archivado). Un mecanismo de "post-commit hooks" (`src/db/post-commit-hooks.ts`) garantiza esto tanto si el request iba envuelto en la transacción de idempotencia como si no. Hasta 3 intentos con backoff creciente (`NOTIFICATION_BACKOFF_MS`), reintenta solo en 5xx/timeout, cada intento se persiste en `NotificationAttempt`.
+- **PostgreSQL** vía Prisma con el adapter `@prisma/adapter-pg` (ya configurado en el repo original).
+- **Formato de error uniforme** (`{"error":{"code","message"}}`) vía un `ExceptionFilter` global + una excepción tipada (`AppException`) que también absorbe los errores de validación (`class-validator`) y del rate limiter.
 
-```bash
-cp .env.example .env.development.local && cp .env.example .env.production.local
-```
+## Supuestos ante ambigüedades
 
-## Compile and run the project
+- El reto no pide autenticación en ningún endpoint; se descartó por completo el módulo de auth/JWT que traía la plantilla (rompía el contrato de `POST /users`, que no lleva password).
+- El header `Idempotency-Key` es **opcional** ("deben aceptar el header", no "deben requerirlo"): sin él, cada POST se ejecuta normalmente cada vez.
+- `POST /tasks/:id/complete` sobre una participación ya completada (sin `Idempotency-Key`) es un *no-op* que responde 200, no un error — coherente con el espíritu de "doble clic" de la sección Confiabilidad.
+- `email` de usuario es único; reutilizarlo responde `409 EMAIL_ALREADY_REGISTERED`.
+- Asignar usuarios a una tarea ya archivada está permitido (no se especifica lo contrario) y no la reabre.
+- No hay paginación en `GET /users` ni `GET /tasks` — no la pide el PDF y el volumen de datos del reto no la justifica.
 
-```bash
-# development
-$ pnpm run start
+## Qué se recortó por falta de tiempo
 
-# watch mode
-$ pnpm run start:dev
+- No hay `PATCH`/`DELETE` de usuarios o tareas (no requeridos).
+- No hay un mecanismo de reenvío manual para notificaciones que agotaron sus 3 intentos (quedan registradas y consultables, pero no se reintenta más tarde).
+- Documentación Swagger básica (rutas mapeadas en `/api`), sin decorators `@ApiProperty` exhaustivos en cada DTO.
 
-# production mode
-$ pnpm run start:prod
-```
+## Extra — Rate limiting
 
-## DB Prisma
+**Problema que resuelve:** la propia sección Confiabilidad describe un escenario de reintentos automáticos y dobles clics; sin límite de tasa, una ráfaga de reintentos (de un cliente con bug, o un ataque) puede saturar la API/DB sin que la idempotencia (que dedupe por *key*, no por volumen) lo evite.
+**Por qué se consideró necesaria:** es una capa de protección independiente y barata que no interfiere con la funcionalidad requerida — los límites (`THROTTLE_TTL_MS`/`THROTTLE_LIMIT`, configurables) están calibrados para no afectar el uso normal ni los tests de concurrencia.
+**Por qué esta sobre otras alternativas:** se evaluaron auditoría/soft-delete y logging estructurado; rate limiting se eligió por ser la que más se conecta con el tema de "Confiabilidad" ya presente en el reto, es funcional en minutos (`@nestjs/throttler`) y es fácilmente verificable (ver `test`/`curl` — a partir del request 28 en 10s responde `429` con el mismo formato `{"error":{"code":"RATE_LIMITED",...}}`).
 
-Generar un nueva migracion
+## Despliegue
 
-```shell
-pnpm prisma migrate dev --name <name>
-```
-
-## Run tests
-
-```bash
-# unit tests
-$ pnpm run test
-
-# e2e tests
-$ pnpm run test:e2e
-
-# test coverage
-$ pnpm run test:cov
-```
-
-## Migrations
-
-```sh
-npx prisma migrate deploy //(Desarrollo) Realiza la migracion.
-o
-npx migrate dev //(produccion) Genera una nueva migracion.
-
-npx prisma db push //(prototipado) Sincroniza la BD directamente con el schema deja cero hostorial, puede pedir --accept-data-loss si un cambio destruye columnas
-```
-
-## Deployment
-
-When you're ready to deploy your NestJS application to production, there are some key steps you can
-take to ensure it runs as efficiently as possible. Check out the
-[deployment documentation](https://docs.nestjs.com/deployment) for more information.
-
-If you are looking for a cloud-based platform to deploy your NestJS application, check out
-[Mau](https://mau.nestjs.com), our official platform for deploying NestJS applications on AWS. Mau
-makes deployment straightforward and fast, requiring just a few simple steps:
-
-```bash
-$ pnpm install -g @nestjs/mau
-$ mau deploy
-```
-
-With Mau, you can deploy your application in just a few clicks, allowing you to focus on building
-features rather than managing infrastructure.
-
-## Resources
-
-Check out a few resources that may come in handy when working with NestJS:
-
-- Visit the [NestJS Documentation](https://docs.nestjs.com) to learn more about the framework.
-- For questions and support, please visit our [Discord channel](https://discord.gg/G7Qnnhy).
-- To dive deeper and get more hands-on experience, check out our official video
-  [courses](https://courses.nestjs.com/).
-- Deploy your application to AWS with the help of [NestJS Mau](https://mau.nestjs.com) in just a few
-  clicks.
-- Visualize your application graph and interact with the NestJS application in real-time using
-  [NestJS Devtools](https://devtools.nestjs.com).
-- Need help with your project (part-time to full-time)? Check out our official
-  [enterprise support](https://enterprise.nestjs.com).
-- To stay in the loop and get updates, follow us on [X](https://x.com/nestframework) and
-  [LinkedIn](https://linkedin.com/company/nestjs).
-- Looking for a job, or have a job to offer? Check out our official
-  [Jobs board](https://jobs.nestjs.com).
-
-## Support
-
-Nest is an MIT-licensed open source project. It can grow thanks to the sponsors and support by the
-amazing backers. If you'd like to join them, please
-[read more here](https://docs.nestjs.com/support).
-
-## Stay in touch
-
-- Author - [Kamil Myśliwiec](https://twitter.com/kammysliwiec)
-- Website - [https://nestjs.com](https://nestjs.com/)
-- Twitter - [@nestframework](https://twitter.com/nestframework)
-
-## License
-
-This project is proprietary software and is distributed under the terms in the
-[`LICENSE`](LICENSE) file. The NestJS framework and other third-party
-dependencies remain subject to their own licenses; this notice applies to the
-original code in this repository.
-
-# Lsita para terminar el Template
-
-- [ ] Configuracion de la base de datos
-- [ ] Auth
-- [ ] Users
-
-```
-
-```
+**Dónde:** Render (Web Service desde este `Dockerfile` + Render PostgreSQL, free tier).
+**Por qué:** deploy directo desde GitHub sin tarjeta de crédito en el plan free, y el repo ya tenía un `Dockerfile` multi-stage listo (`target: prod`) que Render puede construir sin cambios — el `CMD` corre `prisma migrate deploy` antes de levantar la API en cada deploy.
+**Cómo acceder:** `<URL pública — completar tras el deploy>`. Variables de entorno a configurar en Render: `DATABASE_URL` (de Render Postgres), `NOTIFY_URL`, y opcionalmente `NOTIFICATION_BACKOFF_MS`/`THROTTLE_*` (ver `.env.example`).

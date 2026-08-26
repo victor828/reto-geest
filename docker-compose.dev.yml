@@ -9,7 +9,7 @@ services:
       STAGE: dev
       DATABASE_URL: postgresql://postgres:postgres@db:5432/reto_geest
     ports:
-      - '${PORT:-3000}:3000'
+      - '${PORT:-3000}:${PORT:-3000}'
     volumes:
       - .:/app
       - /app/node_modules

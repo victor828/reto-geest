@@ -1,92 +1,84 @@
-import { Injectable, InternalServerErrorException, NotFoundException } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import { PrismaService } from 'src/db/prisma.service';
+import { Prisma } from 'src/generated/prisma/client';
+import { AppException } from 'src/modules/commond/domain/exceptions/app.exception';
+import { ErrorCode } from 'src/modules/commond/domain/exceptions/error-codes.enum';
+import { CreateUserDto } from '../../../application/dtos/create-user.dto';
+import {
+  UserEntity,
+  UserTaskSummary,
+  UserWithPendingTasks,
+} from '../../../domain/entities/user.entity';
 import { UsersRepositoryPort } from '../ports/users-repository.port';
-import { RegisterRequestDto } from 'src/modules/auth/application/dtos/register-request.dto';
-import { UsersEntity } from 'src/modules/users/domain/entities/users.entity';
-import { PaginatedResultDto } from 'src/modules/commond/application/dtos/paginated-result.dto';
-import { UsersFindAllQueryDto, UsersSortableField } from 'src/modules/users/application/dtos/users-find-all-query.dto';
-import { UsersUpdateRequestDto } from 'src/modules/users/application/dtos/users-update-request.dto';
-import { ErrorsUseCase } from 'src/modules/commond/application/use-cases/errors.use-case';
 
 @Injectable()
 export class UsersRepositoryImpl implements UsersRepositoryPort {
-  constructor(private readonly prisma: PrismaService) { }
-  async create(user: RegisterRequestDto): Promise<UsersEntity> {
-    const newUser = await this.prisma.user.create({
-      data: {
-        email: user.email,
-        fullName: user.name,
-        passwordHash: user.password,
-        avatarUrl:
-          user.avatarUrl ??
-          'https://as2.ftcdn.net/v2/jpg/05/76/65/21/1000_F_576652189_WK1JiTOwjKCFIJDJJLI1Q6RtwSfpgspu.jpg',
-        createdAt: new Date(),
+  constructor(private readonly prisma: PrismaService) {}
+
+  async create(data: CreateUserDto): Promise<UserEntity> {
+    try {
+      return await this.prisma.db.user.create({ data });
+    } catch (err) {
+      if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002') {
+        throw new AppException(
+          409,
+          ErrorCode.EMAIL_ALREADY_REGISTERED,
+          `Email "${data.email}" is already registered`,
+        );
+      }
+      throw err;
+    }
+  }
+
+  findById(id: number): Promise<UserEntity | null> {
+    return this.prisma.db.user.findUnique({ where: { id } });
+  }
+
+  findByEmail(email: string): Promise<UserEntity | null> {
+    return this.prisma.db.user.findUnique({ where: { email } });
+  }
+
+  findManyByIds(ids: number[]): Promise<UserEntity[]> {
+    return this.prisma.db.user.findMany({ where: { id: { in: ids } } });
+  }
+
+  async findAllWithPendingTasks(): Promise<UserWithPendingTasks[]> {
+    const users = await this.prisma.db.user.findMany({
+      orderBy: { id: 'asc' },
+      include: {
+        assignments: {
+          where: { completedAt: null },
+          include: { task: { select: { id: true, title: true } } },
+        },
       },
     });
-    if (!newUser) throw new InternalServerErrorException();
 
-    return newUser;
+    return users.map((user) => ({
+      id: user.id,
+      name: user.name,
+      lastName: user.lastName,
+      email: user.email,
+      createdAt: user.createdAt,
+      pendingTasks: user.assignments.map((assignment) => ({
+        id: assignment.task.id,
+        title: assignment.task.title,
+      })),
+    }));
   }
 
-  async findById(id: string): Promise<any> {
-    try {
-      return await this.prisma.user.findUnique({
-        where: { id },
-      });
-    } catch (error) {
-      throw new NotFoundException(`User with id: ${id} not found`);
-    }
-  }
-
-  async findByEmail(email: string): Promise<any> {
-    try {
-      return await this.prisma.user.findUnique({
-        where: { email },
-      });
-    } catch (error) {
-      throw new NotFoundException(`User with email ${email} not found`);
-    }
-  }
-
-  async findByEmailNoValidate(email: string): Promise<any> {
-    const user = await this.prisma.user.findUnique({
-      where: { email },
+  async findUserTasks(userId: number): Promise<UserTaskSummary[]> {
+    const assignments = await this.prisma.db.taskAssignment.findMany({
+      where: { userId },
+      orderBy: { id: 'asc' },
+      include: { task: true },
     });
-    return user;
-  }
 
-  async findAll(query: UsersFindAllQueryDto): Promise<PaginatedResultDto<UsersEntity>> {
-    const { page, limit, sortBy, order } = query;
-
-    const [data, total] = await this.prisma.$transaction([
-      this.prisma.user.findMany({
-        skip: (page - 1) * limit,
-        take: limit,
-        orderBy: { [sortBy as UsersSortableField]: order },
-      }),
-      this.prisma.user.count(),
-    ]);
-
-    return new PaginatedResultDto(data, total, page, limit);
-  }
-
-  async update(id: string, user: UsersUpdateRequestDto): Promise<any> {
-    await this.findById(id)
-    try {
-      return await this.prisma.user.update({
-        data: { ...user },
-        where: { id },
-        select: {
-          id: true,
-          updatedAt: true
-        }
-      });
-    } catch (error) {
-      ErrorsUseCase.setError(error)
-    }
-  }
-
-  async delete(id: string): Promise<void> {
-    throw new Error('Method not implemented.');
+    return assignments.map((assignment) => ({
+      id: assignment.task.id,
+      title: assignment.task.title,
+      description: assignment.task.description,
+      status: assignment.task.status,
+      completed: assignment.completedAt !== null,
+    }));
   }
 }

@@ -1,12 +1,9 @@
 import { Global, Module } from '@nestjs/common';
-import { CommonUseCase } from './application/use-cases/common.use-case';
-import { ErrorsUseCase } from './application/use-cases/errors.use-case';
+import { APP_INTERCEPTOR } from '@nestjs/core';
+import { IdempotencyInterceptor } from './infrastructure/idempotency/idempotency.interceptor';
 
 @Global()
 @Module({
-  imports: [],
-  controllers: [],
-  providers: [CommonUseCase, ErrorsUseCase],
-  exports: [CommonUseCase, ErrorsUseCase],
+  providers: [{ provide: APP_INTERCEPTOR, useClass: IdempotencyInterceptor }],
 })
 export class CommondModule {}
