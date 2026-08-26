@@ -1,0 +1,32 @@
+PROPRIETARY SOFTWARE LICENSE
+
+Copyright (c) 2026 Victor Eduardo Orozco Martinez. All rights reserved.
+
+1. Grant of rights
+
+No license is granted to any person or organization to access, copy, use,
+execute, reproduce, modify, adapt, merge, publish, distribute, sublicense,
+sell, rent, or create derivative works from this software or its source code,
+in whole or in part, except with prior written permission from the copyright
+holder.
+
+2. Restrictions
+
+You may not share, upload, mirror, disclose, or make this software or its
+source code available to any third party without prior written authorization.
+Access to this repository does not grant ownership or any right of use.
+
+3. Third-party components
+
+This license applies only to the original code and materials in this
+repository. NestJS, Prisma, and all other third-party components remain subject
+to their respective licenses and terms.
+
+4. No warranty
+
+This software is provided without warranty of any kind, to the maximum extent
+permitted by applicable law.
+
+5. Contact
+
+For permission requests, contact the copyright holder.

@@ -1,0 +1,21 @@
+pipeline{
+    agent any
+    stages{
+        stage(name: 'Start Operation ${env.BUILD_NUMBER}'){
+            steps{
+                echo 'Starting the operation'
+            }
+        }
+        stage('Build'){
+            steps{
+                sh 'pnpm install'
+                sh 'pnpm run build'
+            }
+        }
+        stage('Test'){
+            steps{
+                sh 'pnpm run test'
+            }
+        }
+    }
+}
