@@ -1,21 +1,79 @@
-pipeline{
+pipeline {
     agent any
-    stages{
-        stage(name: 'Start Operation ${env.BUILD_NUMBER}'){
-            steps{
-                echo 'Starting the operation'
+
+    options {
+        disableConcurrentBuilds()
+        timestamps()
+    }
+
+    environment {
+        IMAGE_NAME   = 'reto-geest'
+        IMAGE_TAG    = "${env.GIT_COMMIT ? env.GIT_COMMIT.take(7) : env.BUILD_NUMBER}"
+        // Rama -> ambiente. develop despliega en dev (hot reload), main en prod.
+        DEPLOY_ENV   = "${env.BRANCH_NAME == 'main' ? 'prod' : (env.BRANCH_NAME == 'develop' ? 'dev' : '')}"
+        COMPOSE_FILE = "docker-compose.${DEPLOY_ENV}.yml"
+        PROJECT_NAME = "reto-geest-${DEPLOY_ENV}"
+        // Credential tipo "Secret file" en Jenkins con el .env real de cada ambiente
+        ENV_CREDENTIAL_ID = "${env.BRANCH_NAME == 'main' ? 'reto-geest-env-prod' : 'reto-geest-env-dev'}"
+    }
+
+    stages {
+        stage('Start Operation') {
+            steps {
+                echo "Build #${env.BUILD_NUMBER} - rama: ${env.BRANCH_NAME} - ambiente: ${env.DEPLOY_ENV ?: 'ninguno (rama no mapeada)'}"
             }
         }
-        stage('Build'){
-            steps{
-                sh 'pnpm install'
-                sh 'pnpm run build'
+
+        stage('Prepare env file') {
+            steps {
+                script {
+                    if (!DEPLOY_ENV) {
+                        error "La rama '${env.BRANCH_NAME}' no está mapeada a dev/prod. Aborta el pipeline."
+                    }
+                }
+                withCredentials([file(credentialsId: "${ENV_CREDENTIAL_ID}", variable: 'ENV_FILE_SRC')]) {
+                    sh 'cp "$ENV_FILE_SRC" .env'
+                }
             }
         }
-        stage('Test'){
-            steps{
-                sh 'pnpm run test'
+
+        stage('Build image (test target)') {
+            steps {
+                sh "docker build --target build -t ${IMAGE_NAME}:${IMAGE_TAG}-build ."
             }
+        }
+
+        stage('Test') {
+            steps {
+                sh "docker run --rm ${IMAGE_NAME}:${IMAGE_TAG}-build pnpm run test"
+            }
+        }
+
+        stage('Deploy') {
+            steps {
+                sh """
+                    docker compose -p ${PROJECT_NAME} -f ${COMPOSE_FILE} build
+                    docker compose -p ${PROJECT_NAME} -f ${COMPOSE_FILE} up -d --remove-orphans
+                """
+            }
+        }
+
+        stage('Cleanup') {
+            steps {
+                sh """
+                    docker image rm ${IMAGE_NAME}:${IMAGE_TAG}-build || true
+                    docker image prune -f
+                """
+            }
+        }
+    }
+
+    post {
+        always {
+            sh 'rm -f .env'
+        }
+        failure {
+            echo "Pipeline falló en la rama ${env.BRANCH_NAME}."
         }
     }
 }

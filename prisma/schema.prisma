@@ -19,6 +19,11 @@ enum Role {
   ADMIN
 }
 
+enum STATE {
+  OPEN
+  CLOSE
+}
+
 model User {
   id           String    @id @default(cuid())
   email        String    @unique
@@ -30,6 +35,18 @@ model User {
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt
   roles        Role[]    @default([GUEST])
+  tasks        Tasks[]
 
   @@index([isActive])
+}
+
+model Tasks {
+  id          String   @id @default(cuid())
+  title       String   @unique
+  description String
+  state       STATE    @default(OPEN)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  user        User?    @relation(fields: [userId], references: [id])
+  userId      String?
 }

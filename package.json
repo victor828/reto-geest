@@ -40,7 +40,8 @@
     "passport-jwt": "^4.0.1",
     "pg": "^8.22.0",
     "reflect-metadata": "^0.2.2",
-    "rxjs": "^7.8.1"
+    "rxjs": "^7.8.1",
+    "prisma": "^7.8.0"
   },
   "devDependencies": {
     "@eslint/eslintrc": "^3.2.0",
@@ -65,7 +66,6 @@
     "hexa-mod": "^1.0.8",
     "jest": "^30.0.0",
     "prettier": "^3.4.2",
-    "prisma": "^7.8.0",
     "source-map-support": "^0.5.21",
     "supertest": "^7.0.0",
     "ts-jest": "^29.2.5",

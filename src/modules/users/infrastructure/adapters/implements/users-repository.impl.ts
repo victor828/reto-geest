@@ -15,7 +15,7 @@ export class UsersRepositoryImpl implements UsersRepositoryPort {
     const newUser = await this.prisma.user.create({
       data: {
         email: user.email,
-        fullName: user.fullName,
+        fullName: user.name,
         passwordHash: user.password,
         avatarUrl:
           user.avatarUrl ??

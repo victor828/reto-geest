@@ -15,7 +15,7 @@ export class RegisterRequestDto {
 
   @IsString()
   @IsNotEmpty()
-  fullName: string;
+  name: string;
 
   @IsString()
   @IsStrongPassword()

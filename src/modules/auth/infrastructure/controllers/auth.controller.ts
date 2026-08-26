@@ -7,7 +7,8 @@ import { RegisterRequestDto } from '../../application/dtos/register-request.dto'
 import { AuthCreateUseCase } from '../../application/use-cases/commands/auth-create.use-case';
 import { LoginSwagger } from 'src/modules/docks/auth/loginSwagger';
 
-@Controller({ path: 'auth', version: '1' })
+@Controller()
+// @Controller({ path: 'auth', version: '1' })
 export class AuthController {
   constructor(
     private readonly authService: AuthService,
@@ -25,7 +26,7 @@ export class AuthController {
     }
   }
 
-  @Post('register')
+  @Post('users')
   register(@Body() registerDto: RegisterRequestDto) {
     return this.authCreateUser.init(registerDto);
   }
