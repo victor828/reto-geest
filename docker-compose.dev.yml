@@ -8,6 +8,7 @@ services:
     environment:
       STAGE: dev
       DATABASE_URL: postgresql://postgres:postgres@db:5432/reto_geest
+      REDIS_URL: redis://redis:6379
     ports:
       - '${PORT:-3000}:${PORT:-3000}'
     volumes:
@@ -15,6 +16,8 @@ services:
       - /app/node_modules
     depends_on:
       db:
+        condition: service_healthy
+      redis:
         condition: service_healthy
     command: sh -c "pnpm prisma migrate deploy && pnpm run start:dev"
     restart: unless-stopped
@@ -36,5 +39,19 @@ services:
       retries: 10
     restart: unless-stopped
 
+  redis:
+    image: redis:7-alpine
+    ports:
+      - '6379:6379'
+    volumes:
+      - redis_dev_data:/data
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
 volumes:
   db_dev_data:
+  redis_dev_data:

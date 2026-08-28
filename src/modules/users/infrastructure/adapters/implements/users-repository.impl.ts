@@ -3,6 +3,11 @@ import { PrismaService } from 'src/db/prisma.service';
 import { Prisma } from 'src/generated/prisma/client';
 import { AppException } from 'src/modules/commond/domain/exceptions/app.exception';
 import { ErrorCode } from 'src/modules/commond/domain/exceptions/error-codes.enum';
+import { Pagination, PaginatedResult } from 'src/modules/commond/domain/entities/pagination.entity';
+import {
+  buildPaginatedResult,
+  toSkipTake,
+} from 'src/modules/commond/infrastructure/pagination/pagination.util';
 import { CreateUserDto } from '../../../application/dtos/create-user.dto';
 import {
   UserEntity,
@@ -42,18 +47,24 @@ export class UsersRepositoryImpl implements UsersRepositoryPort {
     return this.prisma.db.user.findMany({ where: { id: { in: ids } } });
   }
 
-  async findAllWithPendingTasks(): Promise<UserWithPendingTasks[]> {
-    const users = await this.prisma.db.user.findMany({
-      orderBy: { id: 'asc' },
-      include: {
-        assignments: {
-          where: { completedAt: null },
-          include: { task: { select: { id: true, title: true } } },
+  async findAllWithPendingTasks(
+    pagination: Pagination,
+  ): Promise<PaginatedResult<UserWithPendingTasks>> {
+    const [users, total] = await Promise.all([
+      this.prisma.db.user.findMany({
+        orderBy: { id: 'asc' },
+        ...toSkipTake(pagination),
+        include: {
+          assignments: {
+            where: { completedAt: null },
+            include: { task: { select: { id: true, title: true } } },
+          },
         },
-      },
-    });
+      }),
+      this.prisma.db.user.count(),
+    ]);
 
-    return users.map((user) => ({
+    const data = users.map((user) => ({
       id: user.id,
       name: user.name,
       lastName: user.lastName,
@@ -64,6 +75,8 @@ export class UsersRepositoryImpl implements UsersRepositoryPort {
         title: assignment.task.title,
       })),
     }));
+
+    return buildPaginatedResult(data, total, pagination);
   }
 
   async findUserTasks(userId: number): Promise<UserTaskSummary[]> {

@@ -11,8 +11,8 @@ pipeline {
         IMAGE_TAG    = "${env.GIT_COMMIT ? env.GIT_COMMIT.take(7) : env.BUILD_NUMBER}"
         // Rama -> ambiente. develop despliega en dev (hot reload), main en prod.
         DEPLOY_ENV   = "${env.BRANCH_NAME == 'main' ? 'prod' : (env.BRANCH_NAME == 'develop' ? 'dev' : '')}"
-        COMPOSE_FILE = "docker-compose.${DEPLOY_ENV}.yml"
-        PROJECT_NAME = "reto-geest-${DEPLOY_ENV}"
+        COMPOSE_FILE = "docker-compose.${env.DEPLOY_ENV}.yml"
+        PROJECT_NAME = "reto-geest-${env.DEPLOY_ENV}"
         // Credential tipo "Secret file" en Jenkins con el .env real de cada ambiente
         ENV_CREDENTIAL_ID = "${env.BRANCH_NAME == 'main' ? 'reto-geest-env-prod' : 'reto-geest-env-dev'}"
     }
@@ -27,7 +27,7 @@ pipeline {
         stage('Prepare env file') {
             steps {
                 script {
-                    if (!DEPLOY_ENV) {
+                    if (!env.DEPLOY_ENV) {
                         error "La rama '${env.BRANCH_NAME}' no está mapeada a dev/prod. Aborta el pipeline."
                     }
                 }

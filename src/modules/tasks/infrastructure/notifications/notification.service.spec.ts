@@ -1,6 +1,6 @@
-import { NotificationService } from './notification.service';
 import { ConfigService } from '@nestjs/config';
-import { PrismaService } from 'src/db/prisma.service';
+import { Queue } from 'bullmq';
+import { NotificationService, NOTIFY_ARCHIVED_JOB } from './notification.service';
 import { TaskEntity } from '../../domain/entities/task.entity';
 
 const task: TaskEntity = {
@@ -15,108 +15,60 @@ const task: TaskEntity = {
 function makeConfigService(overrides: Record<string, string | undefined> = {}): ConfigService {
   const values: Record<string, string | undefined> = {
     NOTIFY_URL: 'https://hooks.example.com/notify',
-    NOTIFICATION_BACKOFF_MS: '0,0',
-    NOTIFICATION_TIMEOUT_MS: '5000',
+    NOTIFICATION_BACKOFF_MS: '200,500,1000',
     ...overrides,
   };
   return { get: jest.fn((key: string) => values[key]) } as unknown as ConfigService;
 }
 
-function makePrismaService(): jest.Mocked<PrismaService> {
-  return {
-    db: { notificationAttempt: { create: jest.fn().mockResolvedValue(undefined) } },
-  } as unknown as jest.Mocked<PrismaService>;
+function makeQueue(): jest.Mocked<Queue> {
+  return { add: jest.fn().mockResolvedValue(undefined) } as unknown as jest.Mocked<Queue>;
 }
 
 describe('NotificationService', () => {
-  const originalFetch = global.fetch;
-
-  afterEach(() => {
-    global.fetch = originalFetch;
-    jest.restoreAllMocks();
-  });
-
-  it('skips notifying when NOTIFY_URL is not configured', async () => {
-    const fetchMock = jest.fn();
-    global.fetch = fetchMock;
-    const prisma = makePrismaService();
-    const service = new NotificationService(makeConfigService({ NOTIFY_URL: undefined }), prisma);
+  it('skips enqueueing when NOTIFY_URL is not configured', async () => {
+    const queue = makeQueue();
+    const service = new NotificationService(queue, makeConfigService({ NOTIFY_URL: undefined }));
 
     await service.notifyArchived(task);
 
-    expect(fetchMock).not.toHaveBeenCalled();
-    expect(prisma.db.notificationAttempt.create).not.toHaveBeenCalled();
+    expect(queue.add).not.toHaveBeenCalled();
   });
 
-  it('records a single successful attempt and does not retry', async () => {
-    const fetchMock = jest.fn().mockResolvedValue({ status: 200, ok: true });
-    global.fetch = fetchMock;
-    const prisma = makePrismaService();
-    const service = new NotificationService(makeConfigService(), prisma);
+  it('enqueues an archived-task job with one attempt per configured backoff step', async () => {
+    const queue = makeQueue();
+    const service = new NotificationService(queue, makeConfigService());
 
     await service.notifyArchived(task);
 
-    expect(fetchMock).toHaveBeenCalledTimes(1);
-    expect(prisma.db.notificationAttempt.create).toHaveBeenCalledTimes(1);
-    expect(prisma.db.notificationAttempt.create).toHaveBeenCalledWith({
-      data: { taskId: 1, attemptNumber: 1, httpStatus: 200, success: true, errorMessage: null },
-    });
+    expect(queue.add).toHaveBeenCalledWith(
+      NOTIFY_ARCHIVED_JOB,
+      { taskId: 1, title: 'Write report', archivedAt: task.archivedAt!.toISOString() },
+      expect.objectContaining({ attempts: 3, backoff: { type: 'custom' } }),
+    );
   });
 
-  it('retries on a transient (5xx) failure and stops once it succeeds', async () => {
-    const fetchMock = jest
-      .fn()
-      .mockResolvedValueOnce({ status: 503, ok: false })
-      .mockResolvedValueOnce({ status: 200, ok: true });
-    global.fetch = fetchMock;
-    const prisma = makePrismaService();
-    const service = new NotificationService(makeConfigService(), prisma);
-
-    await service.notifyArchived(task);
-
-    expect(fetchMock).toHaveBeenCalledTimes(2);
-    expect(prisma.db.notificationAttempt.create).toHaveBeenCalledTimes(2);
-    expect(prisma.db.notificationAttempt.create).toHaveBeenNthCalledWith(1, {
-      data: { taskId: 1, attemptNumber: 1, httpStatus: 503, success: false, errorMessage: null },
-    });
-    expect(prisma.db.notificationAttempt.create).toHaveBeenNthCalledWith(2, {
-      data: { taskId: 1, attemptNumber: 2, httpStatus: 200, success: true, errorMessage: null },
-    });
-  });
-
-  it('does not retry a non-transient (4xx) failure', async () => {
-    const fetchMock = jest.fn().mockResolvedValue({ status: 400, ok: false });
-    global.fetch = fetchMock;
-    const prisma = makePrismaService();
-    const service = new NotificationService(makeConfigService(), prisma);
-
-    await service.notifyArchived(task);
-
-    expect(fetchMock).toHaveBeenCalledTimes(1);
-    expect(prisma.db.notificationAttempt.create).toHaveBeenCalledTimes(1);
-  });
-
-  it('exhausts all configured attempts when every call fails transiently', async () => {
-    const fetchMock = jest.fn().mockRejectedValue(new Error('network down'));
-    global.fetch = fetchMock;
-    const prisma = makePrismaService();
+  it('falls back to a single attempt when no backoff steps are configured', async () => {
+    const queue = makeQueue();
     const service = new NotificationService(
-      makeConfigService({ NOTIFICATION_BACKOFF_MS: '0,0,0' }),
-      prisma,
+      queue,
+      makeConfigService({ NOTIFICATION_BACKOFF_MS: '' }),
     );
 
     await service.notifyArchived(task);
 
-    expect(fetchMock).toHaveBeenCalledTimes(3);
-    expect(prisma.db.notificationAttempt.create).toHaveBeenCalledTimes(3);
-    expect(prisma.db.notificationAttempt.create).toHaveBeenNthCalledWith(3, {
-      data: {
-        taskId: 1,
-        attemptNumber: 3,
-        httpStatus: null,
-        success: false,
-        errorMessage: 'network down',
-      },
-    });
+    expect(queue.add).toHaveBeenCalledWith(
+      NOTIFY_ARCHIVED_JOB,
+      expect.anything(),
+      expect.objectContaining({ attempts: 1 }),
+    );
+  });
+
+  it('logs and does not throw when the queue itself fails to enqueue', async () => {
+    const queue = makeQueue();
+    queue.add.mockRejectedValueOnce(new Error('redis down'));
+    const service = new NotificationService(queue, makeConfigService());
+
+    await expect(service.notifyArchived(task)).resolves.toBeUndefined();
   });
 });

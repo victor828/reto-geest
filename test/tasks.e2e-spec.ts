@@ -44,16 +44,27 @@ describe('Tasks — create/list/get (e2e)', () => {
     expect(res.body.error.code).toBe('TASK_NOT_FOUND');
   });
 
-  it('lists tasks filtered by status', async () => {
+  it('lists tasks filtered by status, paginated', async () => {
     await request(app.getHttpServer()).post('/tasks').send({ title: 'Open task' }).expect(201);
 
     const openOnly = await request(app.getHttpServer()).get('/tasks?status=open').expect(200);
-    expect(openOnly.body).toHaveLength(1);
+    expect(openOnly.body.data).toHaveLength(1);
+    expect(openOnly.body.meta).toEqual({ page: 1, limit: 20, total: 1, totalPages: 1 });
 
     const archivedOnly = await request(app.getHttpServer())
       .get('/tasks?status=archived')
       .expect(200);
-    expect(archivedOnly.body).toHaveLength(0);
+    expect(archivedOnly.body.data).toHaveLength(0);
+    expect(archivedOnly.body.meta).toEqual({ page: 1, limit: 20, total: 0, totalPages: 0 });
+  });
+
+  it('paginates the tasks list', async () => {
+    await request(app.getHttpServer()).post('/tasks').send({ title: 'Task A' }).expect(201);
+    await request(app.getHttpServer()).post('/tasks').send({ title: 'Task B' }).expect(201);
+
+    const res = await request(app.getHttpServer()).get('/tasks?page=2&limit=1').expect(200);
+    expect(res.body.data).toHaveLength(1);
+    expect(res.body.meta).toEqual({ page: 2, limit: 1, total: 2, totalPages: 2 });
   });
 
   it('rejects an invalid status filter', async () => {

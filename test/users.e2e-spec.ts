@@ -44,15 +44,31 @@ describe('Users (e2e)', () => {
     expect(res.body.error.code).toBe('VALIDATION_ERROR');
   });
 
-  it('lists users with their pending tasks', async () => {
+  it('lists users with their pending tasks, paginated', async () => {
     await request(app.getHttpServer())
       .post('/users')
       .send({ name: 'Ana', lastName: 'Perez', email: 'ana@example.com' })
       .expect(201);
 
     const res = await request(app.getHttpServer()).get('/users').expect(200);
-    expect(res.body).toHaveLength(1);
-    expect(res.body[0]).toMatchObject({ name: 'Ana', pendingTasks: [] });
+    expect(res.body.data).toHaveLength(1);
+    expect(res.body.meta).toEqual({ page: 1, limit: 20, total: 1, totalPages: 1 });
+    expect(res.body.data[0]).toMatchObject({ name: 'Ana', pendingTasks: [] });
+  });
+
+  it('paginates the users list', async () => {
+    await request(app.getHttpServer())
+      .post('/users')
+      .send({ name: 'Ana', lastName: 'Perez', email: 'ana@example.com' })
+      .expect(201);
+    await request(app.getHttpServer())
+      .post('/users')
+      .send({ name: 'Bea', lastName: 'Lopez', email: 'bea@example.com' })
+      .expect(201);
+
+    const res = await request(app.getHttpServer()).get('/users?page=2&limit=1').expect(200);
+    expect(res.body.data).toHaveLength(1);
+    expect(res.body.meta).toEqual({ page: 2, limit: 1, total: 2, totalPages: 2 });
   });
 
   it('returns 404 when listing tasks for a nonexistent user', async () => {

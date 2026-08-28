@@ -9,10 +9,13 @@ services:
     environment:
       STAGE: prod
       DATABASE_URL: postgresql://postgres:postgres@db:5432/reto_geest
+      REDIS_URL: redis://redis:6379
     ports:
       - '${PORT:-3004}:${PORT:-3004}'
     depends_on:
       db:
+        condition: service_healthy
+      redis:
         condition: service_healthy
     command: sh -c "node_modules/.bin/prisma migrate deploy && node dist/main"
     restart: unless-stopped
@@ -32,5 +35,17 @@ services:
       retries: 10
     restart: unless-stopped
 
+  redis:
+    image: redis:7-alpine
+    volumes:
+      - redis_prod_data:/data
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
 volumes:
   db_prod_data:
+  redis_prod_data:

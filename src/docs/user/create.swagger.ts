@@ -18,14 +18,16 @@ export function ApiCreateUser() {
       description: 'Clave única para deduplicar reintentos de esta petición POST.',
     }),
     ApiBody({
-      type: CreateUserDto, examples: {
+      type: CreateUserDto,
+      examples: {
         createOne: {
           value: {
-            name: "Example",
-            email: "example@test.com"
-          }
-        }
-      }
+            name: 'Example',
+            lastName: 'Example',
+            email: 'example@test.com',
+          },
+        },
+      },
     }),
     ApiCreatedResponse({
       description: 'Usuario creado exitosamente',
@@ -39,7 +41,11 @@ export function ApiCreateUser() {
         },
       },
     }),
-    ApiErrorResponse(400, ErrorCode.VALIDATION_ERROR, 'name should not be empty, email must be an email'),
+    ApiErrorResponse(
+      400,
+      ErrorCode.VALIDATION_ERROR,
+      'name should not be empty, email must be an email',
+    ),
     ApiErrorResponse(
       409,
       ErrorCode.EMAIL_ALREADY_REGISTERED,

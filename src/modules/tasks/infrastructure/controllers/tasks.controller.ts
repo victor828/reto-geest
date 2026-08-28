@@ -55,7 +55,7 @@ export class TasksController {
   @Get()
   @ApiFindAllTasks()
   findAll(@Query() query: TasksQueryDto) {
-    return this.findAllTasksService.findAll(query.status);
+    return this.findAllTasksService.findAll(query.status, { page: query.page, limit: query.limit });
   }
 
   @Get(':idTask')

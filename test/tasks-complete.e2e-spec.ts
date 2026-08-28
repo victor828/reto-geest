@@ -4,6 +4,8 @@ import request from 'supertest';
 import { PrismaService } from 'src/db/prisma.service';
 import { createTestApp } from './utils/test-app';
 import { resetDb } from './utils/reset-db';
+import { resetQueue } from './utils/reset-queue';
+import { waitFor } from './utils/wait-for';
 
 describe('Tasks — complete & archive (e2e)', () => {
   let app: INestApplication;
@@ -16,6 +18,7 @@ describe('Tasks — complete & archive (e2e)', () => {
 
   beforeEach(async () => {
     await resetDb(prisma);
+    await resetQueue(app);
     nock.cleanAll();
   });
 
@@ -80,13 +83,19 @@ describe('Tasks — complete & archive (e2e)', () => {
 
     expect(res.body.task.status).toBe('archived');
     expect(res.body.task.archivedAt).toBeTruthy();
-    expect(scope.isDone()).toBe(true);
 
-    const notifications = await request(app.getHttpServer())
-      .get(`/tasks/${taskId}/notifications`)
-      .expect(200);
-    expect(notifications.body).toHaveLength(1);
-    expect(notifications.body[0]).toMatchObject({
+    // The webhook now fires from a BullMQ worker after the response returns: nock's scope flips
+    // isDone() as soon as it intercepts the request, before our own DB write commits, so poll the
+    // persisted attempt itself rather than the mock.
+    let notifications: request.Response | undefined;
+    await waitFor(async () => {
+      notifications = await request(app.getHttpServer()).get(`/tasks/${taskId}/notifications`);
+      return notifications.body.length >= 1;
+    });
+    expect(scope.isDone()).toBe(true);
+    expect(notifications!.status).toBe(200);
+    expect(notifications!.body).toHaveLength(1);
+    expect(notifications!.body[0]).toMatchObject({
       attemptNumber: 1,
       httpStatus: 200,
       success: true,

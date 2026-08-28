@@ -1,3 +1,4 @@
+import { Pagination, PaginatedResult } from 'src/modules/commond/domain/entities/pagination.entity';
 import { CreateUserDto } from '../../../application/dtos/create-user.dto';
 import {
   UserEntity,
@@ -10,6 +11,8 @@ export abstract class UsersRepositoryPort {
   abstract findById(id: number): Promise<UserEntity | null>;
   abstract findByEmail(email: string): Promise<UserEntity | null>;
   abstract findManyByIds(ids: number[]): Promise<UserEntity[]>;
-  abstract findAllWithPendingTasks(): Promise<UserWithPendingTasks[]>;
+  abstract findAllWithPendingTasks(
+    pagination: Pagination,
+  ): Promise<PaginatedResult<UserWithPendingTasks>>;
   abstract findUserTasks(userId: number): Promise<UserTaskSummary[]>;
 }

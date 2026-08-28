@@ -3,6 +3,11 @@ import { PrismaService } from 'src/db/prisma.service';
 import { Prisma } from 'src/generated/prisma/client';
 import { AppException } from 'src/modules/commond/domain/exceptions/app.exception';
 import { ErrorCode } from 'src/modules/commond/domain/exceptions/error-codes.enum';
+import { Pagination, PaginatedResult } from 'src/modules/commond/domain/entities/pagination.entity';
+import {
+  buildPaginatedResult,
+  toSkipTake,
+} from 'src/modules/commond/infrastructure/pagination/pagination.util';
 import { CreateTaskDto } from '../../../application/dtos/create-task.dto';
 import {
   NotificationAttemptSummary,
@@ -36,13 +41,25 @@ export class TasksRepositoryImpl implements TasksRepositoryPort {
     return task ? this.mapDetail(task) : null;
   }
 
-  async findAll(status?: TaskStatusValue): Promise<TaskDetail[]> {
-    const tasks = await this.prisma.db.task.findMany({
-      where: status ? { status } : undefined,
-      orderBy: { id: 'asc' },
-      include: { assignments: { include: { user: true }, orderBy: { id: 'asc' } } },
-    });
-    return tasks.map((task) => this.mapDetail(task));
+  async findAll(
+    status: TaskStatusValue | undefined,
+    pagination: Pagination,
+  ): Promise<PaginatedResult<TaskDetail>> {
+    const where = status ? { status } : undefined;
+    const [tasks, total] = await Promise.all([
+      this.prisma.db.task.findMany({
+        where,
+        orderBy: { id: 'asc' },
+        ...toSkipTake(pagination),
+        include: { assignments: { include: { user: true }, orderBy: { id: 'asc' } } },
+      }),
+      this.prisma.db.task.count({ where }),
+    ]);
+    return buildPaginatedResult(
+      tasks.map((task) => this.mapDetail(task)),
+      total,
+      pagination,
+    );
   }
 
   async assignUsers(taskId: number, userIds: number[]): Promise<void> {

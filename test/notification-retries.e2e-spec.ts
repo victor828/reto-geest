@@ -4,6 +4,8 @@ import request from 'supertest';
 import { PrismaService } from 'src/db/prisma.service';
 import { createTestApp } from './utils/test-app';
 import { resetDb } from './utils/reset-db';
+import { resetQueue } from './utils/reset-queue';
+import { waitFor } from './utils/wait-for';
 
 describe('Notification retries (e2e)', () => {
   let app: INestApplication;
@@ -16,6 +18,7 @@ describe('Notification retries (e2e)', () => {
 
   beforeEach(async () => {
     await resetDb(prisma);
+    await resetQueue(app);
     nock.cleanAll();
   });
 
@@ -40,6 +43,28 @@ describe('Notification retries (e2e)', () => {
     return { taskId, userId };
   }
 
+  async function getNotifications(taskId: number) {
+    const res = await request(app.getHttpServer())
+      .get(`/tasks/${taskId}/notifications`)
+      .expect(200);
+    return res.body as Array<{
+      attemptNumber: number;
+      httpStatus: number | null;
+      success: boolean;
+    }>;
+  }
+
+  /** The worker processes the job on Redis after the HTTP response returns, so tests poll for it. */
+  async function waitForAttempts(taskId: number, count: number) {
+    let attempts: Array<{ attemptNumber: number; httpStatus: number | null; success: boolean }> =
+      [];
+    await waitFor(async () => {
+      attempts = await getNotifications(taskId);
+      return attempts.length >= count;
+    });
+    return attempts;
+  }
+
   it('retries up to 3 times on 5xx responses and stops once the destination succeeds', async () => {
     nock('http://localhost:4000')
       .post('/notify')
@@ -55,14 +80,12 @@ describe('Notification retries (e2e)', () => {
       .send({ userId })
       .expect(200);
 
-    const attempts = await request(app.getHttpServer())
-      .get(`/tasks/${taskId}/notifications`)
-      .expect(200);
-    expect(attempts.body).toHaveLength(3);
-    expect(attempts.body.map((a: { attemptNumber: number }) => a.attemptNumber)).toEqual([1, 2, 3]);
-    expect(attempts.body[0]).toMatchObject({ httpStatus: 500, success: false });
-    expect(attempts.body[1]).toMatchObject({ httpStatus: 500, success: false });
-    expect(attempts.body[2]).toMatchObject({ httpStatus: 200, success: true });
+    const attempts = await waitForAttempts(taskId, 3);
+    expect(attempts).toHaveLength(3);
+    expect(attempts.map((a) => a.attemptNumber)).toEqual([1, 2, 3]);
+    expect(attempts[0]).toMatchObject({ httpStatus: 500, success: false });
+    expect(attempts[1]).toMatchObject({ httpStatus: 500, success: false });
+    expect(attempts[2]).toMatchObject({ httpStatus: 200, success: true });
   });
 
   it('stops after exhausting 3 attempts when the destination keeps failing, without failing the request', async () => {
@@ -76,11 +99,9 @@ describe('Notification retries (e2e)', () => {
 
     expect(res.body.task.status).toBe('archived');
 
-    const attempts = await request(app.getHttpServer())
-      .get(`/tasks/${taskId}/notifications`)
-      .expect(200);
-    expect(attempts.body).toHaveLength(3);
-    expect(attempts.body.every((a: { success: boolean }) => a.success === false)).toBe(true);
+    const attempts = await waitForAttempts(taskId, 3);
+    expect(attempts).toHaveLength(3);
+    expect(attempts.every((a) => a.success === false)).toBe(true);
   });
 
   it('does not retry on a non-transient 4xx response', async () => {
@@ -92,10 +113,8 @@ describe('Notification retries (e2e)', () => {
       .send({ userId })
       .expect(200);
 
-    const attempts = await request(app.getHttpServer())
-      .get(`/tasks/${taskId}/notifications`)
-      .expect(200);
-    expect(attempts.body).toHaveLength(1);
-    expect(attempts.body[0]).toMatchObject({ httpStatus: 400, success: false });
+    const attempts = await waitForAttempts(taskId, 1);
+    expect(attempts).toHaveLength(1);
+    expect(attempts[0]).toMatchObject({ httpStatus: 400, success: false });
   });
 });

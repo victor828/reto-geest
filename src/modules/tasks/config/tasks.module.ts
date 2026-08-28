@@ -1,3 +1,4 @@
+import { BullModule } from '@nestjs/bullmq';
 import { Module } from '@nestjs/common';
 import { UsersModule } from 'src/modules/users/config/users.module';
 import { AssignTaskService } from '../domain/services/commands/assign-task.service';
@@ -8,11 +9,15 @@ import { FindTaskByIdService } from '../domain/services/queries/find-task-by-id.
 import { FindTaskNotificationsService } from '../domain/services/queries/find-task-notifications.service';
 import { TasksRepositoryPort } from '../infrastructure/adapters/ports/tasks-repository.port';
 import { TasksRepositoryImpl } from '../infrastructure/adapters/implements/tasks-repository.impl';
-import { NotificationService } from '../infrastructure/notifications/notification.service';
+import {
+  NOTIFICATIONS_QUEUE,
+  NotificationService,
+} from '../infrastructure/notifications/notification.service';
+import { NotificationProcessor } from '../infrastructure/notifications/notification.processor';
 import { TasksController } from '../infrastructure/controllers/tasks.controller';
 
 @Module({
-  imports: [UsersModule],
+  imports: [UsersModule, BullModule.registerQueue({ name: NOTIFICATIONS_QUEUE })],
   controllers: [TasksController],
   providers: [
     CreateTaskService,
@@ -22,6 +27,7 @@ import { TasksController } from '../infrastructure/controllers/tasks.controller'
     FindTaskByIdService,
     FindTaskNotificationsService,
     NotificationService,
+    NotificationProcessor,
     { provide: TasksRepositoryPort, useClass: TasksRepositoryImpl },
   ],
 })

@@ -5,6 +5,7 @@ import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { UsersModule } from './modules/users/config/users.module';
 import { TasksModule } from './modules/tasks/config/tasks.module';
 import { PrismaModule } from './db/prisma.module';
+import { QueueModule } from './queue/queue.module';
 import { CommondModule } from './modules/commond/commond.module';
 
 @Module({
@@ -32,6 +33,7 @@ import { CommondModule } from './modules/commond/commond.module';
     UsersModule,
     TasksModule,
     PrismaModule,
+    QueueModule,
   ],
   controllers: [],
   providers: [{ provide: APP_GUARD, useClass: ThrottlerGuard }],

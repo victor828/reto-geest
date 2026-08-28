@@ -4,6 +4,8 @@ import request from 'supertest';
 import { PrismaService } from 'src/db/prisma.service';
 import { createTestApp } from './utils/test-app';
 import { resetDb } from './utils/reset-db';
+import { resetQueue } from './utils/reset-queue';
+import { waitFor } from './utils/wait-for';
 
 describe('Concurrent completion archives exactly once (e2e)', () => {
   let app: INestApplication;
@@ -16,6 +18,7 @@ describe('Concurrent completion archives exactly once (e2e)', () => {
 
   beforeEach(async () => {
     await resetDb(prisma);
+    await resetQueue(app);
     nock.cleanAll();
   });
 
@@ -64,10 +67,17 @@ describe('Concurrent completion archives exactly once (e2e)', () => {
     const task = await prisma.task.findUniqueOrThrow({ where: { id: taskId } });
     expect(task.status).toBe('archived');
 
-    expect(notifyCalls).toHaveLength(1); // the webhook itself was called exactly once
-    expect(scope.isDone()).toBe(true);
+    // The webhook now fires from a BullMQ worker after both responses have already returned:
+    // nock's scope flips isDone() as soon as it intercepts the request, before our own DB write
+    // commits, so poll the persisted attempt itself rather than the mock.
+    let notifications: Awaited<ReturnType<typeof prisma.notificationAttempt.findMany>> = [];
+    await waitFor(async () => {
+      notifications = await prisma.notificationAttempt.findMany({ where: { taskId } });
+      return notifications.length >= 1;
+    });
 
-    const notifications = await prisma.notificationAttempt.findMany({ where: { taskId } });
+    expect(scope.isDone()).toBe(true);
+    expect(notifyCalls).toHaveLength(1); // the webhook itself was called exactly once
     expect(notifications).toHaveLength(1); // exactly one attempt was logged, not one per racing request
   });
 });
