@@ -62,10 +62,31 @@ export class TasksRepositoryImpl implements TasksRepositoryPort {
     );
   }
 
-  async assignUsers(taskId: number, userIds: number[]): Promise<void> {
-    await this.prisma.db.taskAssignment.createMany({
-      data: userIds.map((userId) => ({ taskId, userId })),
-      skipDuplicates: true,
+  async assignUsers(
+    taskId: number,
+    userIds: number[],
+  ): Promise<{ assigned: number[]; unassigned: number[] }> {
+    return this.prisma.runInTransaction(async (tx) => {
+      const existing = await tx.taskAssignment.findMany({
+        where: { taskId, userId: { in: userIds } },
+      });
+      const existingByUserId = new Map(existing.map((assignment) => [assignment.userId, assignment]));
+
+      const assigned: number[] = [];
+      const unassigned: number[] = [];
+
+      for (const userId of userIds) {
+        const current = existingByUserId.get(userId);
+        if (!current) {
+          await tx.taskAssignment.create({ data: { taskId, userId } });
+          assigned.push(userId);
+        } else if (current.completedAt === null) {
+          await tx.taskAssignment.delete({ where: { id: current.id } });
+          unassigned.push(userId);
+        }
+      }
+
+      return { assigned, unassigned };
     });
   }
 

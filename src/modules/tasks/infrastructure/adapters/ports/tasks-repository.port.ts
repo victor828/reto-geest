@@ -15,7 +15,10 @@ export abstract class TasksRepositoryPort {
     status: TaskStatusValue | undefined,
     pagination: Pagination,
   ): Promise<PaginatedResult<TaskDetail>>;
-  abstract assignUsers(taskId: number, userIds: number[]): Promise<void>;
+  abstract assignUsers(
+    taskId: number,
+    userIds: number[],
+  ): Promise<{ assigned: number[]; unassigned: number[] }>;
   /** Marks the user's part of the task as completed and, if it was the last pending one, archives the task — all inside a single serialized transaction. */
   abstract completeForUser(
     taskId: number,

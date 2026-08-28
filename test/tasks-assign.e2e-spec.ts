@@ -47,21 +47,28 @@ describe('Tasks — assign (e2e)', () => {
     expect(task.body.assignees).toEqual([expect.objectContaining({ userId, completed: false })]);
   });
 
-  it('does not duplicate the relation when assigning an already-assigned user', async () => {
+  it('toggles the relation off when re-assigning an already-assigned user', async () => {
     const userId = await createUser('b@example.com');
     const taskId = await createTask('Task B');
 
-    await request(app.getHttpServer())
+    const first = await request(app.getHttpServer())
       .post(`/tasks/${taskId}/assign`)
       .send({ userIds: [userId] })
       .expect(200);
-    await request(app.getHttpServer())
+    expect(first.body).toEqual(
+      expect.objectContaining({ assigned: [userId], unassigned: [] }),
+    );
+
+    const second = await request(app.getHttpServer())
       .post(`/tasks/${taskId}/assign`)
       .send({ userIds: [userId] })
       .expect(200);
+    expect(second.body).toEqual(
+      expect.objectContaining({ assigned: [], unassigned: [userId] }),
+    );
 
     const task = await request(app.getHttpServer()).get(`/tasks/${taskId}`).expect(200);
-    expect(task.body.assignees).toHaveLength(1);
+    expect(task.body.assignees).toHaveLength(0);
   });
 
   it('rejects assigning to a nonexistent task', async () => {

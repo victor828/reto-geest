@@ -21,6 +21,14 @@ export class UsersRepositoryImpl implements UsersRepositoryPort {
   constructor(private readonly prisma: PrismaService) {}
 
   async create(data: CreateUserDto): Promise<UserEntity> {
+    const existing = await this.prisma.db.user.findUnique({ where: { email: data.email } });
+    if (existing) {
+      throw new AppException(
+        409,
+        ErrorCode.EMAIL_ALREADY_REGISTERED,
+        `Email "${data.email}" is already registered`,
+      );
+    }
     try {
       return await this.prisma.db.user.create({ data });
     } catch (err) {

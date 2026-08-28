@@ -11,7 +11,10 @@ export class AssignTaskService {
     private readonly usersRepository: UsersRepositoryPort,
   ) {}
 
-  async assign(taskId: number, userIds: number[]): Promise<{ message: string }> {
+  async assign(
+    taskId: number,
+    userIds: number[],
+  ): Promise<{ message: string; assigned: number[]; unassigned: number[] }> {
     const task = await this.tasksRepository.findById(taskId);
     if (!task) {
       throw new AppException(404, ErrorCode.TASK_NOT_FOUND, `Task ${taskId} not found`);
@@ -28,7 +31,7 @@ export class AssignTaskService {
       );
     }
 
-    await this.tasksRepository.assignUsers(taskId, userIds);
-    return { message: 'Users assigned to task successfully' };
+    const { assigned, unassigned } = await this.tasksRepository.assignUsers(taskId, userIds);
+    return { message: 'Task assignment updated', assigned, unassigned };
   }
 }
