@@ -42,7 +42,10 @@ const task = {
 
 describe('AssignTaskService', () => {
   it('assigns users once the task and all users exist', async () => {
-    const tasksRepo = makeTasksRepo({ findById: jest.fn().mockResolvedValue(task) });
+    const tasksRepo = makeTasksRepo({
+      findById: jest.fn().mockResolvedValue(task),
+      assignUsers: jest.fn().mockResolvedValue({ assigned: [1, 2], unassigned: [] }),
+    });
     const usersRepo = makeUsersRepo({
       findManyByIds: jest.fn().mockResolvedValue([
         { id: 1, name: 'A', lastName: 'B', email: 'a@x.com', createdAt: new Date() },
@@ -54,7 +57,11 @@ describe('AssignTaskService', () => {
     const result = await service.assign(1, [1, 2]);
 
     expect(tasksRepo.assignUsers).toHaveBeenCalledWith(1, [1, 2]);
-    expect(result.message).toMatch(/success/i);
+    expect(result).toEqual({
+      message: 'Task assignment updated',
+      assigned: [1, 2],
+      unassigned: [],
+    });
   });
 
   it('throws TASK_NOT_FOUND when the task does not exist', async () => {
