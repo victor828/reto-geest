@@ -70,6 +70,20 @@ describe('Idempotency-Key (e2e)', () => {
     expect(res.body.error.code).toBe('IDEMPOTENCY_KEY_REUSED');
   });
 
+  it('allows reusing the same key across different endpoints', async () => {
+    await request(app.getHttpServer())
+      .post('/tasks')
+      .set('Idempotency-Key', 'shared-key')
+      .send({ title: 'Task via shared key' })
+      .expect(201);
+
+    await request(app.getHttpServer())
+      .post('/users')
+      .set('Idempotency-Key', 'shared-key')
+      .send({ name: 'Ana', lastName: 'Gomez', email: 'ana@example.com' })
+      .expect(201);
+  });
+
   it('executes the operation twice when no Idempotency-Key is sent', async () => {
     const body = { title: 'No key task' };
     await request(app.getHttpServer()).post('/tasks').send(body).expect(201);

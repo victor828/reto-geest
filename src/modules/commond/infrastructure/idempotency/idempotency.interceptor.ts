@@ -65,9 +65,11 @@ export class IdempotencyInterceptor implements NestInterceptor {
       DEFAULT_SUCCESS_STATUS;
 
     const outcome = await this.prisma.runTopLevelTransaction(async (tx) => {
-      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${key})::bigint)`;
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${key} || ${method} || ${path})::bigint)`;
 
-      const existing = await tx.idempotencyKey.findUnique({ where: { key } });
+      const existing = await tx.idempotencyKey.findUnique({
+        where: { key_method_path: { key, method, path } },
+      });
 
       if (existing) {
         if (existing.bodyHash !== bodyHash) {
@@ -100,7 +102,7 @@ export class IdempotencyInterceptor implements NestInterceptor {
       }
 
       await tx.idempotencyKey.update({
-        where: { key },
+        where: { key_method_path: { key, method, path } },
         data: {
           status: 'COMPLETED',
           responseStatus,

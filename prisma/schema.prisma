@@ -67,7 +67,7 @@ model NotificationAttempt {
 
 model IdempotencyKey {
   id             Int               @id @default(autoincrement())
-  key            String            @unique
+  key            String
   method         String
   path           String
   bodyHash       String
@@ -76,4 +76,6 @@ model IdempotencyKey {
   responseBody   Json?             @db.Json
   createdAt      DateTime          @default(now())
   completedAt    DateTime?
+
+  @@unique([key, method, path])
 }
