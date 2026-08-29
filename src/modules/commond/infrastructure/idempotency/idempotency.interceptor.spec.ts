@@ -99,7 +99,7 @@ describe('IdempotencyInterceptor', () => {
     );
     expect(tx.idempotencyKey.update).toHaveBeenCalledWith(
       expect.objectContaining({
-        where: { key: 'key-123' },
+        where: { key_method_path: { key: 'key-123', method: 'POST', path: '/tasks' } },
         data: expect.objectContaining({ status: 'COMPLETED', responseStatus: 201 }),
       }),
     );
