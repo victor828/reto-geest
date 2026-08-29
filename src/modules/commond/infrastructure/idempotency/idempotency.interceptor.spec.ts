@@ -66,22 +66,105 @@ describe('IdempotencyInterceptor', () => {
     await expect(firstValueFrom(result)).resolves.toBe('untouched');
   });
 
-  it('bypasses the transaction when no Idempotency-Key header is present', async () => {
-    const reflector = makeReflector({ [IDEMPOTENT_METADATA_KEY]: true });
+  it('generates a deterministic auto key when no Idempotency-Key header is present', async () => {
+    const reflector = makeReflector({
+      [IDEMPOTENT_METADATA_KEY]: { autoKeyFromBody: true },
+      [HTTP_CODE_METADATA]: 201,
+    });
     const tx = makeTx();
     const prisma = makePrisma(tx);
     const interceptor = new IdempotencyInterceptor(reflector, prisma);
     const { context } = makeContext(makeRequest({ header: jest.fn().mockReturnValue(undefined) }));
-    const next: CallHandler = { handle: jest.fn().mockReturnValue(of('untouched')) };
+    const next: CallHandler = { handle: jest.fn().mockReturnValue(of('handled')) };
 
     await interceptor.intercept(context, next);
 
-    expect(prisma.runTopLevelTransaction).not.toHaveBeenCalled();
+    expect(prisma.runTopLevelTransaction).toHaveBeenCalled();
+    expect(tx.idempotencyKey.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ key: expect.stringMatching(/^auto:[0-9a-f]{64}$/) }),
+      }),
+    );
+  });
+
+  it('does not collide between different bodies (e.g. different users) when no header is sent', async () => {
+    const reflector = makeReflector({
+      [IDEMPOTENT_METADATA_KEY]: { autoKeyFromBody: true },
+      [HTTP_CODE_METADATA]: 200,
+    });
+    const keysSeen: string[] = [];
+    const tx = makeTx({
+      idempotencyKey: {
+        findUnique: jest.fn().mockResolvedValue(null),
+        create: jest.fn((args: { data: { key: string } }) => keysSeen.push(args.data.key)),
+        update: jest.fn().mockResolvedValue(undefined),
+      },
+    });
+    const prisma = makePrisma(tx);
+    const interceptor = new IdempotencyInterceptor(reflector, prisma);
+    const next: CallHandler = { handle: jest.fn().mockReturnValue(of('ok')) };
+
+    const noHeader = jest.fn().mockReturnValue(undefined);
+    await interceptor.intercept(
+      makeContext(
+        makeRequest({
+          originalUrl: '/tasks/1/complete',
+          body: { userId: 1 },
+          header: noHeader,
+        }),
+      ).context,
+      next,
+    );
+    await interceptor.intercept(
+      makeContext(
+        makeRequest({
+          originalUrl: '/tasks/1/complete',
+          body: { userId: 2 },
+          header: noHeader,
+        }),
+      ).context,
+      next,
+    );
+
+    expect(keysSeen).toHaveLength(2);
+    expect(keysSeen[0]).not.toEqual(keysSeen[1]);
+  });
+
+  it('reuses the same auto key for identical retries without a header', async () => {
+    const reflector = makeReflector({
+      [IDEMPOTENT_METADATA_KEY]: { autoKeyFromBody: true },
+      [HTTP_CODE_METADATA]: 200,
+    });
+    const keysSeen: string[] = [];
+    const tx = makeTx({
+      idempotencyKey: {
+        findUnique: jest.fn().mockResolvedValue(null),
+        create: jest.fn((args: { data: { key: string } }) => keysSeen.push(args.data.key)),
+        update: jest.fn().mockResolvedValue(undefined),
+      },
+    });
+    const prisma = makePrisma(tx);
+    const interceptor = new IdempotencyInterceptor(reflector, prisma);
+    const next: CallHandler = { handle: jest.fn().mockReturnValue(of('ok')) };
+    const request = () =>
+      makeContext(
+        makeRequest({
+          originalUrl: '/tasks/1/complete',
+          body: { userId: 1 },
+          header: jest.fn().mockReturnValue(undefined),
+        }),
+      ).context;
+
+    await interceptor.intercept(request(), next);
+    await interceptor.intercept(request(), next);
+
+    expect(keysSeen).toHaveLength(2);
+    expect(keysSeen[0]).toEqual(keysSeen[1]);
   });
 
   it('executes the handler and persists a COMPLETED record on first use of a key', async () => {
     const reflector = makeReflector({
-      [IDEMPOTENT_METADATA_KEY]: true,
+      [IDEMPOTENT_METADATA_KEY]: { autoKeyFromBody: false },
       [HTTP_CODE_METADATA]: 201,
     });
     const tx = makeTx();
@@ -109,7 +192,7 @@ describe('IdempotencyInterceptor', () => {
 
   it('replays the stored response for a completed key without re-running the handler', async () => {
     const reflector = makeReflector({
-      [IDEMPOTENT_METADATA_KEY]: true,
+      [IDEMPOTENT_METADATA_KEY]: { autoKeyFromBody: false },
       [HTTP_CODE_METADATA]: 201,
     });
     // Recalcula el mismo hash canónico que el interceptor produciría para este cuerpo de petición.
@@ -141,7 +224,7 @@ describe('IdempotencyInterceptor', () => {
   });
 
   it('rejects with IDEMPOTENCY_KEY_REUSED when the same key is replayed with a different body', async () => {
-    const reflector = makeReflector({ [IDEMPOTENT_METADATA_KEY]: true });
+    const reflector = makeReflector({ [IDEMPOTENT_METADATA_KEY]: { autoKeyFromBody: false } });
     const tx = makeTx({
       idempotencyKey: {
         findUnique: jest.fn().mockResolvedValue({
@@ -167,7 +250,7 @@ describe('IdempotencyInterceptor', () => {
 
   it('stores the error response and rethrows it as an HttpException when the handler fails', async () => {
     const reflector = makeReflector({
-      [IDEMPOTENT_METADATA_KEY]: true,
+      [IDEMPOTENT_METADATA_KEY]: { autoKeyFromBody: false },
       [HTTP_CODE_METADATA]: 201,
     });
     const tx = makeTx();

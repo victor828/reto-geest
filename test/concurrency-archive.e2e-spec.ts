@@ -7,6 +7,8 @@ import { resetDb } from './utils/reset-db';
 import { resetQueue } from './utils/reset-queue';
 import { waitFor } from './utils/wait-for';
 
+// See the note at the top of notification-retries.e2e-spec.ts: this file is reliable on its own but
+// can flake when the full e2e suite runs multiple BullMQ-based files in one --runInBand process.
 describe('Concurrent completion archives exactly once (e2e)', () => {
   let app: INestApplication;
   let prisma: PrismaService;

@@ -84,7 +84,7 @@ describe('Idempotency-Key (e2e)', () => {
       .expect(201);
   });
 
-  it('executes the operation twice when no Idempotency-Key is sent', async () => {
+  it('executes the operation twice when no Idempotency-Key is sent (POST /tasks has no auto key)', async () => {
     const body = { title: 'No key task' };
     await request(app.getHttpServer()).post('/tasks').send(body).expect(201);
     await request(app.getHttpServer()).post('/tasks').send(body).expect(201);

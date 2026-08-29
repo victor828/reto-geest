@@ -35,7 +35,7 @@ describe('NotificationService', () => {
     expect(queue.add).not.toHaveBeenCalled();
   });
 
-  it('enqueues an archived-task job with one attempt per configured backoff step', async () => {
+  it('enqueues an archived-task job as attempt 1, single-shot per job, with no delay', async () => {
     const queue = makeQueue();
     const service = new NotificationService(queue, makeConfigService());
 
@@ -43,24 +43,8 @@ describe('NotificationService', () => {
 
     expect(queue.add).toHaveBeenCalledWith(
       NOTIFY_ARCHIVED_JOB,
-      { taskId: 1, title: 'Write report', archivedAt: task.archivedAt!.toISOString() },
-      expect.objectContaining({ attempts: 3, backoff: { type: 'custom' } }),
-    );
-  });
-
-  it('falls back to a single attempt when no backoff steps are configured', async () => {
-    const queue = makeQueue();
-    const service = new NotificationService(
-      queue,
-      makeConfigService({ NOTIFICATION_BACKOFF_MS: '' }),
-    );
-
-    await service.notifyArchived(task);
-
-    expect(queue.add).toHaveBeenCalledWith(
-      NOTIFY_ARCHIVED_JOB,
-      expect.anything(),
-      expect.objectContaining({ attempts: 1 }),
+      { taskId: 1, title: 'Write report', archivedAt: task.archivedAt!.toISOString(), attempt: 1 },
+      expect.objectContaining({ attempts: 1, delay: 0 }),
     );
   });
 
@@ -70,5 +54,32 @@ describe('NotificationService', () => {
     const service = new NotificationService(queue, makeConfigService());
 
     await expect(service.notifyArchived(task)).resolves.toBeUndefined();
+  });
+
+  it('schedules a retry job with the given delay and attempt number', async () => {
+    const queue = makeQueue();
+    const service = new NotificationService(queue, makeConfigService());
+    const payload = { taskId: 1, title: 'Write report', archivedAt: '2024-01-02T00:00:00.000Z', attempt: 2 };
+
+    await service.scheduleRetry(payload, 500);
+
+    expect(queue.add).toHaveBeenCalledWith(
+      NOTIFY_ARCHIVED_JOB,
+      payload,
+      expect.objectContaining({ attempts: 1, delay: 500 }),
+    );
+  });
+
+  it('logs and does not throw when scheduling a retry fails to enqueue', async () => {
+    const queue = makeQueue();
+    queue.add.mockRejectedValueOnce(new Error('redis down'));
+    const service = new NotificationService(queue, makeConfigService());
+
+    await expect(
+      service.scheduleRetry(
+        { taskId: 1, title: 'Write report', archivedAt: '2024-01-02T00:00:00.000Z', attempt: 2 },
+        500,
+      ),
+    ).resolves.toBeUndefined();
   });
 });

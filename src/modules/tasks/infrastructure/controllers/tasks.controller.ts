@@ -46,7 +46,7 @@ export class TasksController {
 
   @Post(':idTask/complete')
   @HttpCode(200)
-  @Idempotent()
+  @Idempotent({ autoKeyFromBody: true })
   @ApiCompleteTask()
   complete(@Param('idTask', ParseIntPipe) idTask: number, @Body() dto: CompleteTaskDto) {
     return this.completeTaskService.complete(idTask, dto.userId);

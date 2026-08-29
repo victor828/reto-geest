@@ -3,22 +3,23 @@ import { Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Job } from 'bullmq';
 import { PrismaService } from 'src/db/prisma.service';
-import { NOTIFICATIONS_QUEUE, NotifyPayload } from './notification.service';
+import { NOTIFICATIONS_QUEUE, NotificationService, NotifyPayload } from './notification.service';
 
-function parseBackoffsMs(value: string | undefined): number[] {
+export function parseBackoffsMs(value: string | undefined): number[] {
   return (value ?? '200,500,1000')
     .split(',')
     .map((entry) => Number(entry.trim()))
     .filter((entry) => Number.isFinite(entry) && entry >= 0);
 }
 
+// El delay antes del intento (attemptNumber + 1). Agotados los escalones configurados, se mantiene en
+// el último valor en vez de caer a 0 y martillar el destino, ya que se reintenta indefinidamente.
+export function computeBackoffMs(attemptNumber: number): number {
+  const steps = parseBackoffsMs(process.env.NOTIFICATION_BACKOFF_MS);
+  return steps[attemptNumber - 1] ?? steps[steps.length - 1] ?? 0;
+}
 
-@Processor(NOTIFICATIONS_QUEUE, {
-  settings: {
-    backoffStrategy: (attemptsMade: number) =>
-      parseBackoffsMs(process.env.NOTIFICATION_BACKOFF_MS)[attemptsMade - 1] ?? 0,
-  },
-})
+@Processor(NOTIFICATIONS_QUEUE)
 export class NotificationProcessor extends WorkerHost {
   private readonly logger = new Logger(NotificationProcessor.name);
   private readonly requestTimeoutMs: number;
@@ -26,6 +27,7 @@ export class NotificationProcessor extends WorkerHost {
   constructor(
     private readonly configService: ConfigService,
     private readonly prisma: PrismaService,
+    private readonly notificationService: NotificationService,
   ) {
     super();
     this.requestTimeoutMs = Number(
@@ -37,7 +39,7 @@ export class NotificationProcessor extends WorkerHost {
     const notifyUrl = this.configService.get<string>('NOTIFY_URL');
     if (!notifyUrl) return;
 
-    const attemptNumber = job.attemptsMade + 1;
+    const attemptNumber = job.data.attempt;
     const { httpStatus, ok, transientFailure, errorMessage } = await this.sendOnce(
       notifyUrl,
       job.data,
@@ -48,9 +50,15 @@ export class NotificationProcessor extends WorkerHost {
     if (!transientFailure) return;
 
     this.logger.warn(
-      `Notification attempt ${attemptNumber} for task ${job.data.taskId} failed transiently`,
+      `Notification attempt ${attemptNumber} for task ${job.data.taskId} failed transiently, scheduling attempt ${attemptNumber + 1}`,
     );
-    throw new Error(errorMessage ?? `Notification failed with HTTP ${httpStatus}`);
+    // Cada job es un único intento (ver notification.service.ts); el reintento indefinido se logra
+    // encolando un job NUEVO para el siguiente intento en vez de dejar que BullMQ reintente este mismo
+    // job, evitando depender de su maquinaria de "stalled job"/attempts para un conteo sin límite real.
+    await this.notificationService.scheduleRetry(
+      { ...job.data, attempt: attemptNumber + 1 },
+      computeBackoffMs(attemptNumber),
+    );
   }
 
   private async sendOnce(

@@ -14,7 +14,7 @@ import { PrismaService } from 'src/db/prisma.service';
 import { Prisma } from 'src/generated/prisma/client';
 import { AppException } from '../../domain/exceptions/app.exception';
 import { ErrorCode } from '../../domain/exceptions/error-codes.enum';
-import { IDEMPOTENT_METADATA_KEY } from './idempotent.decorator';
+import { IDEMPOTENT_METADATA_KEY, IdempotentOptions } from './idempotent.decorator';
 
 const DEFAULT_SUCCESS_STATUS = 201;
 
@@ -50,16 +50,27 @@ export class IdempotencyInterceptor implements NestInterceptor {
   ) {}
 
   async intercept(context: ExecutionContext, next: CallHandler): Promise<Observable<unknown>> {
-    const isIdempotent = this.reflector.get<boolean>(IDEMPOTENT_METADATA_KEY, context.getHandler());
-    if (!isIdempotent) return next.handle();
+    const options = this.reflector.get<IdempotentOptions | undefined>(
+      IDEMPOTENT_METADATA_KEY,
+      context.getHandler(),
+    );
+    if (!options) return next.handle();
 
     const request = context.switchToHttp().getRequest<Request>();
-    const key = request.header('Idempotency-Key');
-    if (!key) return next.handle();
+    const providedKey = request.header('Idempotency-Key');
+    if (!providedKey && !options.autoKeyFromBody) return next.handle();
 
     const method = request.method;
     const path = request.originalUrl;
     const bodyHash = canonicalHash(request.body);
+    // Sin header, y solo en endpoints marcados como naturalmente idempotentes por body
+    // (autoKeyFromBody), derivamos una clave determinística del propio request (método + ruta +
+    // body) para que reintentos idénticos sin Idempotency-Key también dedupliquen, sin chocar entre
+    // requests distintos (p. ej. dos usuarios completando la misma tarea) porque el body ya forma
+    // parte del hash.
+    const key =
+      providedKey ??
+      `auto:${createHash('sha256').update(`${method}:${path}:${bodyHash}`).digest('hex')}`;
     const intendedStatus =
       this.reflector.get<number>(HTTP_CODE_METADATA, context.getHandler()) ??
       DEFAULT_SUCCESS_STATUS;

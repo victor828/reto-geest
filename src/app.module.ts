@@ -7,6 +7,11 @@ import { TasksModule } from './modules/tasks/config/tasks.module';
 import { PrismaModule } from './db/prisma.module';
 import { QueueModule } from './queue/queue.module';
 import { CommondModule } from './modules/commond/commond.module';
+import { DevNotificationsModule } from './modules/dev-notifications/dev-notifications.module';
+
+// Utilidad de solo-desarrollo (ver dev-notifications.controller.ts): no se registra cuando STAGE=prod
+// para no exponerla en el despliegue público evaluado.
+const devOnlyModules = process.env.STAGE === 'prod' ? [] : [DevNotificationsModule];
 
 @Module({
   imports: [
@@ -34,6 +39,7 @@ import { CommondModule } from './modules/commond/commond.module';
     TasksModule,
     PrismaModule,
     QueueModule,
+    ...devOnlyModules,
   ],
   controllers: [],
   providers: [{ provide: APP_GUARD, useClass: ThrottlerGuard }],
