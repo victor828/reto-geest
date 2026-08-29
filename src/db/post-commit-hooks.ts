@@ -5,10 +5,11 @@ type Hook = () => Promise<void> | void;
 const storage = new AsyncLocalStorage<Hook[]>();
 
 /**
- * Lets deeply-nested services schedule work (e.g. an outbound notification) that must run only
- * after the current database transaction has actually committed, without those services needing
- * to know whether they are inside a top-level transaction or one reused from an outer caller
- * (see PrismaService.runTopLevelTransaction, which owns collecting and draining these hooks).
+ * Permite que servicios profundamente anidados programen trabajo (p. ej. una notificación saliente)
+ * que debe ejecutarse solo después de que la transacción de base de datos actual haya hecho commit,
+ * sin que esos servicios necesiten saber si están dentro de una transacción de nivel superior o de
+ * una reutilizada de un caller externo (ver PrismaService.runTopLevelTransaction, que se encarga de
+ * recolectar y vaciar estos hooks).
  */
 export const PostCommitHooks = {
   async runWithCollector<T>(fn: () => Promise<T>): Promise<{ result: T; hooks: Hook[] }> {
@@ -17,7 +18,7 @@ export const PostCommitHooks = {
     return { result, hooks };
   },
 
-  /** Resolves once the hook has actually run — either deferred to post-commit, or immediately if there is no active transaction to wait on. */
+  /** Se resuelve una vez que el hook realmente se ejecutó — ya sea diferido a post-commit, o de inmediato si no hay transacción activa que esperar. */
   register(hook: Hook): Promise<void> {
     const hooks = storage.getStore();
     if (hooks) {

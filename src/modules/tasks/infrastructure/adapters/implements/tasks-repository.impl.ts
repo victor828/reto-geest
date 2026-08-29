@@ -116,9 +116,9 @@ export class TasksRepositoryImpl implements TasksRepositoryPort {
         );
       }
 
-      // Serializes concurrent completions for this task: whichever request gets here first holds
-      // the row lock until it commits, so a racing request only sees "pending = 0" once that
-      // completion is already visible — see docs/database-uml.md for the full race analysis.
+      // Serializa las finalizaciones concurrentes de esta tarea: la petición que llegue primero mantiene
+      // el bloqueo de la fila hasta hacer commit, así una petición en carrera solo ve "pending = 0" una vez
+      // que esa finalización ya es visible — ver docs/database-uml.md para el análisis completo de la carrera.
       await tx.$queryRaw`SELECT id FROM "Task" WHERE id = ${taskId} FOR UPDATE`;
 
       await tx.taskAssignment.updateMany({

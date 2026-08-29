@@ -15,7 +15,7 @@ export class CompleteTaskService {
     const { task, didArchive } = await this.tasksRepository.completeForUser(taskId, userId);
 
     if (didArchive) {
-      // Deferred to run only once the archiving transaction has actually committed.
+      // Diferido para ejecutarse solo una vez que la transacción de archivado haya hecho commit.
       await PostCommitHooks.register(() => this.notificationService.notifyArchived(task));
     }
 

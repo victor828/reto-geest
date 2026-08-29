@@ -20,12 +20,6 @@ function parseBackoffsMs(value: string | undefined): number[] {
     .filter((entry) => Number.isFinite(entry) && entry >= 0);
 }
 
-/**
- * Enqueues the archived-task webhook as a durable BullMQ job instead of sending it inline: the
- * job survives a process restart mid-retry, and the HTTP response for `/complete` no longer waits
- * on the webhook's retry cycle. Always called AFTER the archiving transaction has committed (see
- * PostCommitHooks), so a slow/failing NOTIFY_URL never holds DB locks or risks the archival itself.
- */
 @Injectable()
 export class NotificationService {
   private readonly logger = new Logger(NotificationService.name);
@@ -33,7 +27,8 @@ export class NotificationService {
   private readonly backoffsMs: number[];
 
   constructor(
-    @InjectQueue(NOTIFICATIONS_QUEUE) private readonly queue: Queue<NotifyPayload>,
+    @InjectQueue(NOTIFICATIONS_QUEUE)
+    private readonly queue: Queue<NotifyPayload>,
     private readonly configService: ConfigService,
   ) {
     this.notifyUrl = this.configService.get<string>('NOTIFY_URL');
@@ -60,8 +55,6 @@ export class NotificationService {
         removeOnFail: false,
       });
     } catch (err) {
-      // Archiving already committed by the time we get here — a broken queue must never fail
-      // the HTTP response for work that already succeeded.
       this.logger.error(`Failed to enqueue notification for task ${task.id}`, err as Error);
     }
   }

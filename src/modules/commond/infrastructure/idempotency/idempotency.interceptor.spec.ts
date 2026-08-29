@@ -112,7 +112,7 @@ describe('IdempotencyInterceptor', () => {
       [IDEMPOTENT_METADATA_KEY]: true,
       [HTTP_CODE_METADATA]: 201,
     });
-    // Recompute the same canonical hash the interceptor would produce for this request body.
+    // Recalcula el mismo hash canónico que el interceptor produciría para este cuerpo de petición.
     const bodyHash = createHash('sha256')
       .update(JSON.stringify({ title: 'T' }))
       .digest('hex');

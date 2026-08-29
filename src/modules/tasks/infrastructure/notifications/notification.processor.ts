@@ -12,18 +12,7 @@ function parseBackoffsMs(value: string | undefined): number[] {
     .filter((entry) => Number.isFinite(entry) && entry >= 0);
 }
 
-/**
- * Consumes the jobs `NotificationService` enqueues. Each BullMQ retry re-invokes `process()`, so
- * `job.attemptsMade` (0 before the first try) doubles as the attempt counter persisted alongside
- * the outcome in `NotificationAttempt`. Throwing lets BullMQ schedule the next attempt via the
- * `backoffStrategy` below; returning normally — success or a non-transient failure — settles the
- * job with no further retries, mirroring the previous inline retry loop's behavior.
- *
- * `backoffStrategy` is invoked directly by BullMQ, outside Nest's DI, only once a job actually
- * fails — by then the app has long finished bootstrapping and `.env` is loaded, so reading
- * `process.env` here (instead of the injected `ConfigService`) is safe and avoids wiring instance
- * state into a function BullMQ calls independently of any particular instance.
- */
+
 @Processor(NOTIFICATIONS_QUEUE, {
   settings: {
     backoffStrategy: (attemptsMade: number) =>

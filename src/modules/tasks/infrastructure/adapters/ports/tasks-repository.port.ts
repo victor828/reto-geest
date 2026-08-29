@@ -8,7 +8,7 @@ import {
 } from '../../../domain/entities/task.entity';
 
 export abstract class TasksRepositoryPort {
-  abstract create(data: CreateTaskDto): Promise<TaskEntity>;
+  abstract create(data: Omit<CreateTaskDto, 'userIds'>): Promise<TaskEntity>;
   abstract findById(id: number): Promise<TaskEntity | null>;
   abstract findDetailById(id: number): Promise<TaskDetail | null>;
   abstract findAll(
@@ -19,7 +19,7 @@ export abstract class TasksRepositoryPort {
     taskId: number,
     userIds: number[],
   ): Promise<{ assigned: number[]; unassigned: number[] }>;
-  /** Marks the user's part of the task as completed and, if it was the last pending one, archives the task — all inside a single serialized transaction. */
+  /** Marca la parte del usuario en la tarea como completada y, si era la última pendiente, archiva la tarea — todo dentro de una única transacción serializada. */
   abstract completeForUser(
     taskId: number,
     userId: number,

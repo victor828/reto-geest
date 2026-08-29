@@ -37,10 +37,10 @@ function canonicalHash(body: unknown): string {
 }
 
 /**
- * Deduplicates POST requests carrying an `Idempotency-Key` header: the first request executes
- * the handler inside a DB transaction guarded by a Postgres advisory lock keyed on the header
- * value, persists the outcome, and any request racing with the same key blocks on that lock
- * until it can replay the exact same response instead of re-executing the handler.
+ * Deduplica peticiones POST que llevan un header `Idempotency-Key`: la primera petición ejecuta
+ * el handler dentro de una transacción de BD protegida por un advisory lock de Postgres asociado
+ * al valor del header, persiste el resultado, y cualquier petición que compita con la misma clave
+ * queda bloqueada en ese lock hasta poder reproducir la misma respuesta en lugar de re-ejecutar el handler.
  */
 @Injectable()
 export class IdempotencyInterceptor implements NestInterceptor {
@@ -82,8 +82,8 @@ export class IdempotencyInterceptor implements NestInterceptor {
         if (existing.status === 'COMPLETED') {
           return { status: existing.responseStatus ?? intendedStatus, body: existing.responseBody };
         }
-        // status === IN_PROGRESS here only happens after a crash mid-flight (the advisory lock
-        // was released with the dead connection); safe to redo the work and overwrite the row.
+        // status === IN_PROGRESS aquí solo ocurre tras un crash a mitad de proceso (el advisory lock
+        // se liberó junto con la conexión muerta); es seguro rehacer el trabajo y sobrescribir la fila.
       } else {
         await tx.idempotencyKey.create({
           data: { key, method, path, bodyHash, status: 'IN_PROGRESS' },

@@ -10,14 +10,30 @@ export function ApiCreateTask() {
     ApiOperation({
       summary: 'Crear tarea',
       description:
-        'Crea una nueva tarea en estado "open". Acepta el header Idempotency-Key para deduplicar reintentos de la misma petición.',
+        'Crea una nueva tarea en estado "open". Opcionalmente se puede asignar la tarea a uno o varios usuarios en la misma petición mediante "userIds". Acepta el header Idempotency-Key para deduplicar reintentos de la misma petición.',
     }),
     ApiHeader({
       name: 'Idempotency-Key',
       required: false,
       description: 'Clave única para deduplicar reintentos de esta petición POST.',
     }),
-    ApiBody({ type: CreateTaskDto }),
+    ApiBody({
+      type: CreateTaskDto,
+      examples: {
+        sinAsignar: {
+          summary: 'Crear tarea sin asignar usuarios',
+          value: { title: 'Preparar informe mensual', description: 'Informe de cierre de mes' },
+        },
+        conAsignar: {
+          summary: 'Crear tarea y asignarla a usuarios',
+          value: {
+            title: 'Preparar informe mensual',
+            description: 'Informe de cierre de mes',
+            userIds: [1, 2],
+          },
+        },
+      },
+    }),
     ApiCreatedResponse({
       description: 'Tarea creada exitosamente',
       schema: {
@@ -32,6 +48,7 @@ export function ApiCreateTask() {
       },
     }),
     ApiErrorResponse(400, ErrorCode.VALIDATION_ERROR, 'title should not be empty'),
+    ApiErrorResponse(404, ErrorCode.USER_NOT_FOUND, 'User(s) not found: 3, 4'),
     ApiErrorResponse(
       422,
       ErrorCode.IDEMPOTENCY_KEY_REUSED,
