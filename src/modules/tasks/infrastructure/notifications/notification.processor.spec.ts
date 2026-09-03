@@ -124,6 +124,21 @@ describe('NotificationProcessor', () => {
     expect(notificationService.scheduleRetry).not.toHaveBeenCalled();
   });
 
+  it('records the attempt and does not schedule a retry after reaching the max attempt count', async () => {
+    const fetchMock = jest.fn().mockResolvedValue({ status: 503, ok: false });
+    global.fetch = fetchMock;
+    const prisma = makePrismaService();
+    const notificationService = makeNotificationService();
+    const processor = new NotificationProcessor(makeConfigService(), prisma, notificationService);
+
+    await expect(processor.process(makeJob(3))).resolves.toBeUndefined();
+
+    expect(prisma.db.notificationAttempt.create).toHaveBeenCalledWith({
+      data: { taskId: 1, attemptNumber: 3, httpStatus: 503, success: false, errorMessage: null },
+    });
+    expect(notificationService.scheduleRetry).not.toHaveBeenCalled();
+  });
+
   it('records a network error and schedules the next attempt, without throwing', async () => {
     const fetchMock = jest.fn().mockRejectedValue(new Error('network down'));
     global.fetch = fetchMock;

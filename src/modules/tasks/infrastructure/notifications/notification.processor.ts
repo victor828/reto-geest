@@ -12,12 +12,14 @@ export function parseBackoffsMs(value: string | undefined): number[] {
     .filter((entry) => Number.isFinite(entry) && entry >= 0);
 }
 
-// El delay antes del intento (attemptNumber + 1). Agotados los escalones configurados, se mantiene en
-// el último valor en vez de caer a 0 y martillar el destino, ya que se reintenta indefinidamente.
+// El delay antes del intento (attemptNumber + 1).
 export function computeBackoffMs(attemptNumber: number): number {
   const steps = parseBackoffsMs(process.env.NOTIFICATION_BACKOFF_MS);
   return steps[attemptNumber - 1] ?? steps[steps.length - 1] ?? 0;
 }
+
+// Máximo de intentos totales (1 = primer envío) exigido por el reto.
+export const MAX_NOTIFICATION_ATTEMPTS = 3;
 
 @Processor(NOTIFICATIONS_QUEUE)
 export class NotificationProcessor extends WorkerHost {
@@ -48,13 +50,18 @@ export class NotificationProcessor extends WorkerHost {
 
     if (ok) return;
     if (!transientFailure) return;
+    if (attemptNumber >= MAX_NOTIFICATION_ATTEMPTS) {
+      this.logger.warn(
+        `Notification for task ${job.data.taskId} failed after ${attemptNumber} attempts, giving up`,
+      );
+      return;
+    }
 
     this.logger.warn(
       `Notification attempt ${attemptNumber} for task ${job.data.taskId} failed transiently, scheduling attempt ${attemptNumber + 1}`,
     );
-    // Cada job es un único intento (ver notification.service.ts); el reintento indefinido se logra
-    // encolando un job NUEVO para el siguiente intento en vez de dejar que BullMQ reintente este mismo
-    // job, evitando depender de su maquinaria de "stalled job"/attempts para un conteo sin límite real.
+    // Cada job es un único intento (ver notification.service.ts); el reintento se logra encolando un
+    // job NUEVO para el siguiente intento en vez de dejar que BullMQ reintente este mismo job.
     await this.notificationService.scheduleRetry(
       { ...job.data, attempt: attemptNumber + 1 },
       computeBackoffMs(attemptNumber),

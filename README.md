@@ -8,9 +8,10 @@ La api se encarga de Generar tareas y posteriormente ser asignadas a los usurios
 
 ### Mejoras Realizads
 
-- Se tomo la decicion de usar el sistema de reintos usando `Redis Bull MQ` para que en caso de los 3
-  intentos fallidos no indique un proceso terminado como falso, este entrara en el sistema de colas
-  para que luego pueda vovler a intentar.
+- Se usa `Redis` + `BullMQ` como cola de reintentos para las notificaciones: cada intento agenda el
+  siguiente como un job nuevo con backoff creciente (`NOTIFICATION_BACKOFF_MS`), hasta un máximo de
+  3 intentos totales, tal como pide el reto. Cada intento queda registrado (número, timestamp,
+  status HTTP) y se puede consultar en `GET /tasks/:idTask/notifications`.
 
 - Asignacion de usuario desde el momento de la creacion de la tarea, ahora se puede asignar a un
   usuario desde el momento de la creacion de la tarea.

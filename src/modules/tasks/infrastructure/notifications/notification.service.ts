@@ -47,10 +47,11 @@ export class NotificationService {
 
   /**
    * Encola el siguiente intento de notificación. Usado tanto por el primer envío como por
-   * NotificationProcessor para reintentar indefinidamente (ver esa clase) — deliberadamente NO se
-   * inyecta el Queue directamente en el Processor: hacerlo desde la misma clase que es el propio
-   * @Processor/Worker le corta el loop de consumo tras el primer job (se descubrió al implementar
-   * esto: el worker dejaba de recibir jobs nuevos, incluida su propia cadena de reintentos).
+   * NotificationProcessor para reintentar hasta MAX_NOTIFICATION_ATTEMPTS (ver esa clase) —
+   * deliberadamente NO se inyecta el Queue directamente en el Processor: hacerlo desde la misma
+   * clase que es el propio @Processor/Worker le corta el loop de consumo tras el primer job (se
+   * descubrió al implementar esto: el worker dejaba de recibir jobs nuevos, incluida su propia
+   * cadena de reintentos).
    */
   async scheduleRetry(payload: NotifyPayload, delayMs: number): Promise<void> {
     await this.enqueue(payload, delayMs);
@@ -60,9 +61,7 @@ export class NotificationService {
     try {
       // attempts:1 a propósito: cada job es un único intento que siempre llega a un estado terminal
       // real. Los reintentos, si hacen falta, los encola este mismo método de nuevo (ver
-      // NotificationProcessor) — decisión de producto para reintentar indefinidamente hasta entregar
-      // la notificación, en vez de apoyarse en el conteo interno de intentos de BullMQ (que no está
-      // pensado para valores enormes/infinitos, ver historial de esta sesión).
+      // NotificationProcessor), que corta al llegar a MAX_NOTIFICATION_ATTEMPTS.
       await this.queue.add(NOTIFY_ARCHIVED_JOB, payload, {
         delay: delayMs,
         attempts: 1,
